@@ -1,11 +1,24 @@
 # 🍪 L-Karné — SnackBox & Kridi Tracker Bureau
 
-> Kiosk libre-service et registre de suivi des dettes de collègues ("Kridi") hébergé sur **GitHub Pages**, synchronisé en direct avec **Google Sheets** sur Google Drive via **Google Apps Script**.
+> Kiosk libre-service et registre de suivi des dettes de collègues ("Kridi") disponible comme **PWA React** sur GitHub Pages. Le mode Firebase utilise **Cloud Firestore** pour les données et les mises à jour en direct, avec **Google Apps Script** comme passerelle sécurisée pour les règles métier et les écritures.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
-[![Frontend](https://img.shields.io/badge/Frontend-TailwindCSS%20%7C%20Lucide-059669.svg)](#)
+[![Frontend](https://img.shields.io/badge/Frontend-React%20PWA-059669.svg)](#)
 [![Backend](https://img.shields.io/badge/Backend-Google%20Apps%20Script-10b981.svg)](#)
-[![Database](https://img.shields.io/badge/Database-Google%20Sheets-34d399.svg)](#)
+[![Database](https://img.shields.io/badge/Database-Firestore-34d399.svg)](#)
+
+## 📱 Nouvelle version PWA et migration Firebase
+
+La PWA conserve l’interface et les règles métier existantes dans `public/legacy.html`, intégrées dans l’application React afin de ne pas perdre les formulaires et validations pendant la migration. Le backend Apps Script existant reste compatible. Le nouveau mode Firestore est activé uniquement après une migration vérifiée, dans un **nouveau projet Apps Script** : ne remplacez pas le déploiement historique.
+
+- Sur iPhone, ouvrez le lien GitHub Pages dans Safari, puis utilisez **Installer** et **Sur l’écran d’accueil**.
+- Sur Android, ouvrez le même lien dans Chrome et choisissez **Installer** ou **Ajouter à l’écran d’accueil**.
+- Les clients conservent leur identifiant et leur PIN actuels : Apps Script compare les mêmes empreintes SHA-256. Aucune réinitialisation générale des PIN n’est requise.
+- Firestore fournit les écouteurs temps réel; les règles bloquent les écritures navigateur et limitent la lecture des clients à leurs propres données. Apps Script applique les opérations métier existantes et écrit dans Firestore.
+- Le projet n’utilise pas Cloud Functions ni Cloud Storage. Il peut rester sur Firebase Spark, dans les quotas gratuits; Firebase Hosting est remplacé ici par GitHub Pages.
+- La migration lit directement les onglets existants depuis Apps Script. Aucun export du classeur ni partage de données clients avec ce dépôt n’est nécessaire.
+
+Voir les étapes complètes et les précautions de bascule dans [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 
 ---
 
@@ -21,7 +34,7 @@
 - **Paiement à l'achat** : Le client indique s'il paie immédiatement ou ajoute l'article à son solde. Les achats payés et les règlements reçus alimentent la caisse.
 - **Échec d’achat** : Si l’application ne peut pas vérifier l’annulation d’une opération, elle demande de ne pas réessayer et de faire vérifier le solde, le stock et l’onglet `Transactions` par l’administrateur. Si la réponse réseau est perdue, vérifiez l’historique avant toute nouvelle demande.
 - **Annulation d’achat** : Un client peut demander l’annulation d’un achat terminé; l’achat reste actif jusqu’à la décision de l’administrateur. L’approbation confirme le retour du produit et, si l’achat était payé, le remboursement en espèces; elle rétablit le stock, corrige la dette si nécessaire et enregistre l’effet sur la caisse. L’administrateur peut aussi annuler directement un achat depuis l’activité récente.
-- **Confidentialité Totale (Multi-Tenancy Strict)** : Filtrage côté serveur dans Google Apps Script. Un collègue ne peut en aucun cas voir les dettes ou les achats de ses collègues dans l'inspecteur réseau.
+- **Confidentialité Totale (Multi-Tenancy Strict)** : Les règles Firestore limitent les lectures d’un client à son profil et à ses transactions; les données privées d’authentification restent inaccessibles au navigateur. Apps Script vérifie aussi chaque action et chaque rôle.
 - **Historique Personnel** : Liste chronologique détaillée des achats et des règlements effectués.
 
 ### 🛡️ Espace Administrateur (Gestion & Encaissement)
@@ -37,17 +50,19 @@
 - **Ajout de produit avec achat initial** : Le formulaire de nouveau produit accepte le coût total payé pour son stock initial; ce montant est enregistré comme achat de stock et déduit de la caisse.
 - **Correction du catalogue** : L’administrateur peut modifier le nom, le prix de vente et choisir une catégorie existante (ou en créer une) dans une fenêtre d’édition, sans changer le stock.
 - **Recherche et filtres admin** : Recherche des collègues et produits, filtres par rôle/solde, catégorie/état du stock, type d’opération, utilisateur et date.
-- **Actualisation rapide** : Chaque onglet admin dispose d’un bouton d’actualisation qui recharge les données admin sans recharger la page; le tableau de bord se met aussi à jour automatiquement toutes les 30 secondes. Le client peut actualiser son historique personnel de la même façon.
+- **Actualisation rapide** : Avec Firebase configuré, les vues client et admin s’actualisent à chaque changement Firestore; sans configuration Firebase, l’ancienne interface conserve le rafraîchissement admin périodique de secours et les boutons d’actualisation.
 - **Accès admin** : Navigation réservée aux administrateurs; le serveur vérifie également le rôle pour chaque action protégée.
 - **Images produit** : L’administrateur peut enregistrer une URL HTTPS publique lors de la création ou remplacer l’image d’un produit existant depuis le tableau d’inventaire. La recherche d’images ouvre les résultats par nom de produit; il faut copier l’URL directe d’une photo autorisée. À défaut, l’emoji sert d’image.
 - **Import du classeur** : Clients et soldes importés comme comptes non activés; produits et prix importés avec stock initial nul.
 - **Inscription client** : Le client utilise un code privé à usage unique pour activer la fiche et conserver son solde importé.
 - **PIN oublié** : Le client demande une réinitialisation depuis l’écran de connexion. Après vérification de son identité en personne, l’administrateur génère un PIN temporaire depuis les demandes du tableau de bord et le remet directement au client. Le premier accès avec ce PIN impose son remplacement avant tout usage; les anciennes sessions sont invalidées.
-- **Ajout de Nouveaux Articles & Nouveaux Collègues** : Formulaires intégrés connectés à Google Sheets; un collègue importé garde son solde lorsqu’on lui attribue un compte.
+- **Ajout de Nouveaux Articles & Nouveaux Collègues** : Les formulaires conservent les validations existantes; un collègue importé garde son solde lorsqu’on lui attribue un compte.
 
 ---
 
-## 📊 Schéma de la Base de Données (Google Sheets)
+## 📊 Données importées du classeur historique
+
+Le format source ci-dessous décrit les onglets lus une seule fois par `migrateCurrentSheetsToFirestore`. Les enregistrements sont ensuite conservés dans Firestore; le classeur original reste une sauvegarde.
 
 ### Onglet 1 : `Products`
 | Colonne | Type | Description |
@@ -120,7 +135,7 @@ Le classeur contient 36 clients et 65 produits. Les soldes positifs sont des det
 
 ## 🖼️ Gestion des images produit
 
-Les images sont référencées par l’onglet `Products`, colonne `image_url` : le formulaire **Nouveau Produit** accepte une URL HTTPS publique et conserve l’emoji comme solution de repli. Les images distantes sont chargées par le navigateur; aucun fichier image n’est envoyé ou stocké dans Google Sheets ou Google Drive par l’application. Pour remplacer une image, modifiez `image_url` dans Sheets avec une URL d’image stable et publiquement accessible. Privilégiez une image de produit fournie par le fabricant ou une image que vous êtes autorisé à utiliser; les liens de recherche/aperçu et les pages de boutique ne sont pas des URL d’image.
+Les images sont référencées par le champ `image_url` des produits : le formulaire **Nouveau Produit** accepte une URL HTTPS publique et conserve l’emoji comme solution de repli. Les images distantes sont chargées par le navigateur; aucun fichier image n’est téléversé vers l’application. Privilégiez une image de produit fournie par le fabricant ou une image que vous êtes autorisé à utiliser; les liens de recherche/aperçu et les pages de boutique ne sont pas des URL d’image.
 
 ---
 
@@ -134,25 +149,30 @@ Les images sont référencées par l’onglet `Products`, colonne `image_url` : 
 
 ## 🌐 Utilisation sur plusieurs étages et à distance
 
-L'application est déjà centralisée : chaque téléphone ou ordinateur envoie ses opérations au même Apps Script, qui met à jour le même Google Sheet. Les appareils peuvent utiliser des réseaux Wi-Fi différents ou le réseau mobile ; ils ont besoin d'Internet, mais pas du même réseau local ni d'un serveur à installer.
+L’application est centralisée : chaque appareil utilise la même API Apps Script et la même base Firestore. Les appareils peuvent utiliser des réseaux Wi-Fi différents ou le réseau mobile; ils ont besoin d’Internet, mais pas du même réseau local ni d’un serveur à installer.
 
-Publiez l'application sur GitHub Pages, déployez Apps Script en application Web, puis configurez la même URL `/exec` dans les paramètres de chaque appareil. Les nouvelles opérations sont enregistrées dans la feuille partagée. Une page déjà ouverte ne rafraîchit pas automatiquement les changements effectués sur les autres appareils : rechargez la vue. Pour ce petit commerce, c'est la solution simple ; un rafraîchissement périodique peut être ajouté si une actualisation automatique est nécessaire.
+Publiez l’application sur GitHub Pages, déployez le nouveau projet Apps Script comme application Web, puis configurez son URL `/exec` dans la PWA. Les écritures sont enregistrées dans Firestore et propagées aux pages connectées en temps réel.
 
-Sans Internet, les étages et les jours à distance ne peuvent pas partager instantanément les données sans un serveur accessible de partout. L’application n’affiche plus de comptes ni de produits de démonstration : configurez le backend Google Sheets pour utiliser les données importées.
+Sans Internet, aucune vente n’est enregistrée hors connexion : attendez le retour de la connexion avant de saisir des opérations. L’application n’affiche pas de comptes ou de produits de démonstration.
 
 ---
 
 ## 🚀 Démarrage Rapide & Déploiement
 
-Consultez le guide complet pas-à-pas : **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** pour configurer Google Sheets, déployer `Code.gs` et publier sur GitHub Pages.
+Consultez le guide complet pas-à-pas : **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** pour créer le backend séparé, migrer le classeur vers Firestore et publier la PWA.
 
 ---
 
 ## 💻 Structure du Projet
 
 ```text
-├── Code.gs                # Moteur backend complet Google Apps Script (REST API)
-├── index.html             # Application Frontend Kiosk (Mobile-First SPA)
+├── Code.gs                # API et règles métier historiques
+├── FirestoreBackend.gs    # Adaptateur Firestore et migration vérifiée du classeur
+├── index.html             # Point d’entrée React/Vite de la PWA
+├── src/                   # Coquille React et écouteurs temps réel Firebase
+├── public/legacy.html     # Interface existante conservée pendant la transition
+├── firestore.rules        # Règles Firestore (écritures serveur uniquement)
+├── appsscript.json        # Manifeste Apps Script et autorisations REST Firestore
 ├── DEPLOYMENT_GUIDE.md    # Guide pas-à-pas illustré de déploiement
 └── README.md              # Documentation technique du projet
 ```

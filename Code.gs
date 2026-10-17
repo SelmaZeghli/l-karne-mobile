@@ -259,6 +259,7 @@ function verifySessionToken(token) {
     userId: userId,
     role: role,
     expiresAt: expiresAt,
+    sessionVersion: tokenVersion,
     pinResetRequired: String(userRow[resetCol]).toUpperCase() === 'TRUE'
   };
 }
@@ -267,13 +268,25 @@ function verifySessionToken(token) {
  * Get the active Spreadsheet instance
  */
 function getSpreadsheet() {
-  return SpreadsheetApp.getActiveSpreadsheet();
+  if (isFirestoreBackendEnabled()) return getFirestoreSpreadsheet();
+  return getSourceSpreadsheet();
+}
+
+function getSourceSpreadsheet() {
+  const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  if (activeSpreadsheet) return activeSpreadsheet;
+  const spreadsheetId = PropertiesService.getScriptProperties().getProperty('SOURCE_SPREADSHEET_ID');
+  if (!spreadsheetId) {
+    throw new Error('Set SOURCE_SPREADSHEET_ID when this script is not bound to a spreadsheet.');
+  }
+  return SpreadsheetApp.openById(spreadsheetId);
 }
 
 /**
  * CORS and JSON Response Helper
  */
 function createJsonResponse(data) {
+  flushApplicationData();
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
@@ -359,6 +372,17 @@ function doPost(e) {
 
     // Route protected endpoints
     switch (action) {
+      case 'auth/firebase_token':
+        if (!isFirestoreBackendEnabled()) {
+          return createJsonResponse({ success: false, error: 'Firebase authentication is not enabled.' });
+        }
+        return createJsonResponse({
+          success: true,
+          firebaseCustomToken: createFirebaseCustomToken(
+            session.userId, session.role, session.sessionVersion
+          )
+        });
+
       // Colleague routes
       case 'colleague/dashboard':
         return createJsonResponse(handleColleagueDashboard(session));
@@ -640,6 +664,9 @@ function handleRegister(body) {
     return {
       success: true,
       token: generateSessionToken(user.id, user.role, Number(user.session_version) || 0),
+      firebaseCustomToken: isFirestoreBackendEnabled()
+        ? createFirebaseCustomToken(user.id, user.role, Number(user.session_version) || 0)
+        : '',
       user: user
     };
   } finally {
@@ -683,18 +710,24 @@ function handleLogin(body) {
       if (storedHash.toLowerCase() === hashedInputPin.toLowerCase()) {
         const userId = String(row[idxId]);
         const role = String(row[idxRole] || 'user');
-        const token = generateSessionToken(userId, role, Number(row[headers.indexOf('session_version')]) || 0);
+        const sessionVersion = Number(row[headers.indexOf('session_version')]) || 0;
+        const pinResetRequired =
+          String(row[headers.indexOf('pin_reset_required')]).toUpperCase() === 'TRUE';
+        const token = generateSessionToken(userId, role, sessionVersion);
 
         return {
           success: true,
           token: token,
+          firebaseCustomToken: isFirestoreBackendEnabled() && !pinResetRequired
+            ? createFirebaseCustomToken(userId, role, sessionVersion)
+            : '',
           user: {
             id: userId,
             name: String(row[idxName]),
             username: rowUser,
             role: role,
             balance_mad: Number(row[idxBalance] || 0),
-            pin_reset_required: String(row[headers.indexOf('pin_reset_required')]).toUpperCase() === 'TRUE'
+            pin_reset_required: pinResetRequired
           }
         };
       } else {
@@ -731,7 +764,7 @@ function handlePinResetRequest(body) {
     });
     if (rowIndex > 0 && !data[rowIndex][requestedAtCol]) {
       sheet.getRange(rowIndex + 1, requestedAtCol + 1).setValue(new Date().toISOString());
-      SpreadsheetApp.flush();
+      flushApplicationData();
     }
     return {
       success: true,
@@ -781,7 +814,7 @@ function handleChangeTemporaryPin(session, body) {
     sheet.getRange(rowIndex + 1, resetRequiredCol + 1).setValue(false);
     sheet.getRange(rowIndex + 1, requestedAtCol + 1).setValue('');
     sheet.getRange(rowIndex + 1, versionCol + 1).setValue(newVersion);
-    SpreadsheetApp.flush();
+    flushApplicationData();
     const updatedRow = sheet.getRange(rowIndex + 1, 1, 1, sheet.getLastColumn()).getValues()[0];
     if (String(updatedRow[pinHashCol]).toLowerCase() !== hashPin(newPin).toLowerCase() ||
         String(updatedRow[resetRequiredCol]).toUpperCase() === 'TRUE' ||
@@ -834,7 +867,7 @@ function handleAdminResetUserPin(body) {
     sheet.getRange(rowIndex + 1, pinHashCol + 1).setValue(hashPin(temporaryPin));
     sheet.getRange(rowIndex + 1, resetRequiredCol + 1).setValue(true);
     sheet.getRange(rowIndex + 1, versionCol + 1).setValue(newVersion);
-    SpreadsheetApp.flush();
+    flushApplicationData();
     const updatedRow = sheet.getRange(rowIndex + 1, 1, 1, sheet.getLastColumn()).getValues()[0];
     if (String(updatedRow[pinHashCol]).toLowerCase() !== hashPin(temporaryPin).toLowerCase() ||
         String(updatedRow[resetRequiredCol]).toUpperCase() !== 'TRUE' ||
@@ -1180,7 +1213,7 @@ function handleColleaguePurchase(session, body) {
     try {
       transactionWriteAttempted = true;
       tSheet.appendRow(transactionRow);
-      SpreadsheetApp.flush();
+      flushApplicationData();
 
       let savedTransactions = tSheet.getDataRange().getValues();
       let savedHeaders = savedTransactions[0].map(function (header) {
@@ -1203,7 +1236,7 @@ function handleColleaguePurchase(session, body) {
         uSheet.getRange(userRowIndex, uBalCol + 1).setValue(newBalance);
       }
 
-      SpreadsheetApp.flush();
+      flushApplicationData();
       if (pSheet.getRange(productRowIndex, pStockCol + 1).getValue() !== newStock) {
         throw new Error('Stock update could not be verified.');
       }
@@ -1212,7 +1245,7 @@ function handleColleaguePurchase(session, body) {
       }
 
       tSheet.getRange(transactionRowIndex + 1, statusColumn).setValue('COMPLETE');
-      SpreadsheetApp.flush();
+      flushApplicationData();
       if (String(tSheet.getRange(transactionRowIndex + 1, statusColumn).getValue()).toUpperCase() !== 'COMPLETE') {
         throw new Error('Transaction completion could not be verified.');
       }
@@ -1259,7 +1292,7 @@ function handleColleaguePurchase(session, body) {
       if (transactionRowIndex >= 1 && currentTransactionStatus === 'COMPLETE') {
         try {
           tSheet.getRange(transactionRowIndex + 1, statusColumn).setValue('PENDING');
-          SpreadsheetApp.flush();
+          flushApplicationData();
         } catch (rollbackError) {
           rollbackErrors.push('transaction pending status: ' + rollbackError);
         }
@@ -1283,7 +1316,7 @@ function handleColleaguePurchase(session, body) {
       }
 
       try {
-        SpreadsheetApp.flush();
+        flushApplicationData();
         if (stockWriteAttempted &&
             pSheet.getRange(productRowIndex, pStockCol + 1).getValue() !== originalStockValue) {
           rollbackErrors.push('stock restoration could not be verified');
@@ -1302,7 +1335,7 @@ function handleColleaguePurchase(session, body) {
             throw new Error('Cannot cancel transaction before balance rollback is verified.');
           }
           tSheet.getRange(transactionRowIndex + 1, statusColumn).setValue('FAILED');
-          SpreadsheetApp.flush();
+          flushApplicationData();
           const failedTransactions = tSheet.getDataRange().getValues();
           const failedHeaders = failedTransactions[0].map(function (header) {
             return String(header).trim().toLowerCase();
@@ -1400,7 +1433,7 @@ function handleColleaguePurchaseCancellationRequest(session, body) {
     sheet.getRange(rowIndex + 1, requestTimeCol + 1).setValue(requestedAt);
     sheet.getRange(rowIndex + 1, decidedAtCol + 1).setValue('');
     sheet.getRange(rowIndex + 1, decidedByCol + 1).setValue('');
-    SpreadsheetApp.flush();
+    flushApplicationData();
     if (String(sheet.getRange(rowIndex + 1, cancelStatusCol + 1).getValue()).toUpperCase() !== 'REQUESTED') {
       throw new Error('La demande d’annulation n’a pas pu être vérifiée.');
     }
@@ -1457,7 +1490,7 @@ function handleAdminPurchaseCancellationDecision(session, body) {
       sheet.getRange(transactionRowIndex + 1, cancelStatusCol + 1).setValue('REJECTED');
       sheet.getRange(transactionRowIndex + 1, decidedAtCol + 1).setValue(new Date().toISOString());
       sheet.getRange(transactionRowIndex + 1, decidedByCol + 1).setValue(session.userId);
-      SpreadsheetApp.flush();
+      flushApplicationData();
       if (String(sheet.getRange(transactionRowIndex + 1, cancelStatusCol + 1).getValue()).toUpperCase() !== 'REJECTED') {
         throw new Error('Le refus de la demande n’a pas pu être vérifié.');
       }
@@ -1568,11 +1601,11 @@ function handleAdminPurchaseCancellationDecision(session, body) {
       } else {
         eventWriteAttempted = true;
         sheet.appendRow(cancellationRow);
-        SpreadsheetApp.flush();
+        flushApplicationData();
         const refreshed = sheet.getDataRange().getValues();
         eventRowIndex = getTransactionRowById(refreshed, idCol, eventId);
       }
-      SpreadsheetApp.flush();
+      flushApplicationData();
       if (eventRowIndex < 1 ||
           String(sheet.getRange(eventRowIndex + 1, statusColumn).getValue()).toUpperCase() !== 'PENDING') {
         throw new Error('L’événement d’annulation en attente n’a pas pu être vérifié.');
@@ -1584,7 +1617,7 @@ function handleAdminPurchaseCancellationDecision(session, body) {
         balanceWriteAttempted = true;
         usersSheet.getRange(userIndex + 1, uBalanceCol + 1).setValue(restoredBalance);
       }
-      SpreadsheetApp.flush();
+      flushApplicationData();
       if (productsSheet.getRange(productIndex + 1, pStockCol + 1).getValue() !== restoredStock) {
         throw new Error('Le retour du stock n’a pas pu être vérifié.');
       }
@@ -1596,9 +1629,9 @@ function handleAdminPurchaseCancellationDecision(session, body) {
       sheet.getRange(transactionRowIndex + 1, cancelStatusCol + 1).setValue('APPROVED');
       sheet.getRange(transactionRowIndex + 1, decidedAtCol + 1).setValue(new Date().toISOString());
       sheet.getRange(transactionRowIndex + 1, decidedByCol + 1).setValue(session.userId);
-      SpreadsheetApp.flush();
+      flushApplicationData();
       sheet.getRange(eventRowIndex + 1, statusColumn).setValue('COMPLETE');
-      SpreadsheetApp.flush();
+      flushApplicationData();
       if (String(sheet.getRange(eventRowIndex + 1, statusColumn).getValue()).toUpperCase() !== 'COMPLETE') {
         throw new Error('La confirmation de l’annulation n’a pas pu être vérifiée.');
       }
@@ -1634,7 +1667,7 @@ function handleAdminPurchaseCancellationDecision(session, body) {
             : null;
           if (eventStatusCell && String(eventStatusCell.getValue()).toUpperCase() === 'COMPLETE') {
             eventStatusCell.setValue('PENDING');
-            SpreadsheetApp.flush();
+            flushApplicationData();
             if (String(eventStatusCell.getValue()).toUpperCase() !== 'PENDING') {
               rollbackErrors.push('remise en attente de l’événement d’annulation non vérifiée');
             }
@@ -1670,7 +1703,7 @@ function handleAdminPurchaseCancellationDecision(session, body) {
         }
       }
       try {
-        SpreadsheetApp.flush();
+        flushApplicationData();
         if (stockWriteAttempted &&
             productsSheet.getRange(productIndex + 1, pStockCol + 1).getValue() !== originalStockValue) {
           rollbackErrors.push('restauration du stock non vérifiée');
@@ -1690,7 +1723,7 @@ function handleAdminPurchaseCancellationDecision(session, body) {
         }
         if (!rollbackErrors.length && eventWriteAttempted && eventRowIndex >= 1) {
           sheet.getRange(eventRowIndex + 1, statusColumn).setValue('FAILED');
-          SpreadsheetApp.flush();
+          flushApplicationData();
           if (String(sheet.getRange(eventRowIndex + 1, statusColumn).getValue()).toUpperCase() !== 'FAILED') {
             rollbackErrors.push('annulation FAILED non vérifiée');
           }
@@ -1980,6 +2013,7 @@ function handleAdminRestock(session, body) {
       0,
       adjustmentLabel + ': ' + (addedQty > 0 ? '+' : '') + addedQty + ' (Nouveau stock: ' + newStock + ')'
     ]);
+    flushApplicationData();
 
     return {
       success: true,
@@ -2059,6 +2093,7 @@ function handleAdminPurchaseInventory(session, body) {
       cost,
       description
     ]);
+    flushApplicationData();
 
     return {
       success: true,
@@ -2131,6 +2166,7 @@ function handleAdminSettle(session, body) {
       amountPaid,
       notes
     ]);
+    flushApplicationData();
 
     return {
       success: true,
@@ -2172,6 +2208,7 @@ function handleAdminSetOpeningCash(body) {
           sheet.getRange(timestampRow + 1, 2).setValue(new Date().toISOString());
         }
         sheet.getRange(i + 1, 2).setValue(Math.round(amount * 100) / 100);
+        flushApplicationData();
         return { success: true, message: 'Montant compté enregistré.' };
       }
     }
@@ -2243,6 +2280,7 @@ function handleAdminAddProduct(session, body) {
         'Achat de stock initial (nouveau produit)'
       ]);
     }
+    flushApplicationData();
 
     return {
       success: true,
@@ -2258,6 +2296,18 @@ function handleAdminAddProduct(session, body) {
 }
 
 function handleAdminUpdateProductImage(body) {
+  const lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) return { success: false, error: 'Serveur occupé.' };
+    const result = handleAdminUpdateProductImageLocked(body);
+    if (result.success) flushApplicationData();
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleAdminUpdateProductImageLocked(body) {
   const productId = String(body.productId || '').trim();
   const imageUrl = String(body.image_url || '').trim();
   if (!productId || !isValidProductImageValue(imageUrl)) {
@@ -2284,6 +2334,18 @@ function handleAdminUpdateProductImage(body) {
 }
 
 function handleAdminUpdateProductDetails(body) {
+  const lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) return { success: false, error: 'Serveur occupé.' };
+    const result = handleAdminUpdateProductDetailsLocked(body);
+    if (result.success) flushApplicationData();
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleAdminUpdateProductDetailsLocked(body) {
   const productId = String(body.productId || '').trim();
   const name = String(body.name || '').trim();
   const category = String(body.category || '').trim();
@@ -2321,6 +2383,18 @@ function handleAdminUpdateProductDetails(body) {
  * Admin: Add New User
  */
 function handleAdminAddUser(session, body) {
+  const lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(CONFIG.LOCK_TIMEOUT_MS)) return { success: false, error: 'Serveur occupé.' };
+    const result = handleAdminAddUserLocked(session, body);
+    if (result.success) flushApplicationData();
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleAdminAddUserLocked(session, body) {
   const name = String(body.name || '').trim();
   const username = String(body.username || '').trim().toLowerCase();
   const pin = String(body.pin || '').trim();

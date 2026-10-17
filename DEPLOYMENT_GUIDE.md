@@ -1,177 +1,196 @@
-# Guide de Déploiement Complet : L-Karné 🍪
+# L-Karné PWA and Firebase Setup Guide
 
-Ce guide détaille pas à pas la mise en place de votre kiosk libre-service SnackBox **"L-Karné"** hébergé gratuitement sur **GitHub Pages** et synchronisé en temps réel avec un **Google Sheet** sur le Google Drive de l'Admin via **Google Apps Script**.
+This is the step-by-step guide for deploying the React PWA, migrating the existing records to Firestore, and testing the new app. The existing deployed app and source spreadsheet must remain available until the new version has passed testing.
 
----
+## Before you start
 
-## 🏗️ Architecture & Flux des Données
+- The app works on iPhone and Android. Users open the same public web link and can add it to their Home Screen.
+- The design uses Firebase Spark, Firestore, GitHub Pages, and Google Apps Script. It does not use Cloud Functions. Free usage is subject to Firebase and Apps Script quotas; it is not an unlimited service.
+- The workbook `_L-Karné.xlsx` has the expected tabs and column headers: `Products`, `Users`, `Transactions`, `Settings`, and `Invites`. Its `Invites` tab already contains the invitation records; **do not import `codes-invitation-clients.csv` separately**.
+- The workbook contains private client information, PIN hashes, balances, transaction history, and invitation codes. Keep it private. Do not upload it to GitHub, attach it to a public issue, or send passwords, private keys, or invitation codes in chat.
+- The migration code reads a Google spreadsheet using its ID; Apps Script cannot read a Windows path such as `C:\Users\...\_L-Karné.xlsx`.
 
-```mermaid
-flowchart TD
-    subgraph Client ["Frontend Kiosk (GitHub Pages)"]
-        UI["UI Mobile / Tablette (index.html)"]
-        PIN["Clavier PIN Sécurisé"]
-        TokenStore["Stockage Session (sessionStorage)"]
-    end
+### Choose the correct source of data
 
-    subgraph GoogleCloud ["Google Apps Script Web App (Code.gs)"]
-        Router["Passerelle REST (doPost / doGet)"]
-        AuthModule["HMAC-SHA256 Token & SHA-256 PIN"]
-        LockService["LockService (Sérialisation des écritures)"]
-        Filter["Filtre Confidentialité Multi-Tenancy"]
-    end
+Use the **current Google Sheet** as the migration source if it has the latest activity. This avoids converting an older export. If the Excel workbook is the authoritative and most recent copy, upload it to your own Google Drive and convert a copy to Google Sheets:
 
-    subgraph Drive ["Admin Google Drive"]
-        SS[("Google Sheets: L-Karné")]
-        TabProducts[("Onglet: Products")]
-        TabUsers[("Onglet: Users")]
-        TabTxs[("Onglet: Transactions")]
-    end
+1. In Google Drive, choose **New → File upload** and select `_L-Karné.xlsx`.
+2. When the upload finishes, right-click the uploaded file and choose **Open with → Google Sheets**.
+3. In Google Sheets, choose **File → Save as Google Sheets** (or the equivalent **Save as Google Sheets** option). This creates a Google Sheets copy; keep the original Excel file unchanged as a backup.
+4. Open the converted copy and confirm that it has the five tabs listed above and that the rows are present. Compare the client, invitation, product, and transaction counts with the source before continuing.
+5. Copy the converted spreadsheet's ID from its URL. It is the text between `/d/` and `/edit`.
 
-    UI -->|"1. Saisie PIN"| PIN
-    PIN -->|"2. POST auth/login"| Router
-    Router --> AuthModule
-    AuthModule -->|"3. Vérification Hash PIN"| TabUsers
-    AuthModule -->|"4. Émission Jeton HMAC"| TokenStore
+Do not combine an older workbook export with records from the live sheet. If anything changed after the workbook was downloaded, use the current sheet or make a fresh export before migration.
 
-    UI -->|"5. POST colleague/dashboard (avec Jeton)"| Router
-    Router --> Filter
-    Filter -->|"6. Filtre Strict (Données personnelles uniquement)"| UI
+## Quick setup
 
-    UI -->|"7. POST colleague/purchase (+1 Khditha)"| Router
-    Router --> LockService
-    LockService -->|"8. Écrit transaction, stock et solde avec compensation en cas d’erreur"| SS
-```
+### 1. Create a Firebase project on Spark
 
----
+1. Go to the [Firebase console](https://console.firebase.google.com/) and create a project. Keep it on the **Spark** plan; do not upgrade to Blaze or create Cloud Functions.
+2. In **Authentication**, enable Firebase Authentication so the app can accept the custom sign-in tokens issued by Apps Script. The app continues to check each user's existing username and PIN in Apps Script.
+3. In **Firestore Database**, create the `(default)` database in production mode. For users in Morocco, choose **`europe-southwest1` (Madrid)** if it is offered in the location list; it is the closest listed Firestore region. The database location cannot be changed later.
+4. Open Firestore **Rules**, replace the starter rules with the contents of [`firestore.rules`](./firestore.rules), and publish them. Browser writes are denied; the Apps Script backend performs writes.
+5. Register the Firebase web app and copy its configuration:
+   1. In the Firebase Console, open your project and click the **gear icon** next to **Project Overview** in the left sidebar.
+   2. Select **Project settings**, then stay on the **General** tab.
+   3. Scroll down to **Your apps**. Click the **Web** icon (`</>`). If you do not see the icon, click **Add app** and choose **Web**.
+   4. Enter an app nickname such as `L-Karne PWA`. Leave **Also set up Firebase Hosting** unchecked, then click **Register app**.
+   5. On the **Add Firebase SDK** screen, either **Use npm** or **Use a `<script>` tag** can be selected; neither choice affects these values. Look in the code sample for the comment **Your web app's Firebase configuration**. Copy only `apiKey`, `authDomain`, `projectId`, and `appId` from the `firebaseConfig` object. You can ignore `storageBucket`, `messagingSenderId`, and `measurementId`. If you leave this screen, return later to **Project settings → General → Your apps**, select the registered web app, and open **SDK setup and configuration** to find the same block.
 
-## 📋 Étape 1 : Création du Google Sheet & Initialisation
+   These four web configuration values are public; they are not private keys. Never copy or publish the service-account private key here.
 
-1. Rendez-vous sur votre compte Google Drive : [drive.google.com](https://drive.google.com)
-2. Cliquez sur **Nouveau** > **Google Sheets** (Feuille de calcul vierge).
-3. Renommez le document en : `L-Karné - SnackBox Bureau`.
-4. Dans le menu supérieur, cliquez sur **Extensions** > **Apps Script**.
-5. Un nouvel onglet d'éditeur de code s'ouvre. Renommez le projet Apps Script en `L-Karne-Backend`.
+### 2. Create a separate Apps Script backend
 
----
+Do not edit or redeploy the Apps Script project currently used by the old app.
 
-## 💻 Étape 2 : Configuration du Code Apps Script
+1. Sign in to [Apps Script](https://script.google.com/) with the Google account that can read the chosen source spreadsheet. Create a **new standalone project**.
+2. Add the two code files and the manifest to the **new** Apps Script project:
+   1. In the editor's left **Files** panel, open `Code.gs` (created by default). Select all its starter text and replace it with the complete contents of this repository's [`Code.gs`](./Code.gs). Save (`Ctrl+S`).
+   2. Beside **Files**, click **Add a file (+) → Script**. Name it `FirestoreBackend` (Apps Script adds the `.gs` extension). Replace its starter text with the complete contents of [`FirestoreBackend.gs`](./FirestoreBackend.gs), then save.
+   3. Click **Project Settings** (the gear icon in the left sidebar). Under **General settings**, enable **Show "appsscript.json" manifest file in editor**.
+   4. Return to **Editor**. In the **Files** panel, open `appsscript.json`. Replace its contents with the complete contents of this repository's [`appsscript.json`](./appsscript.json), then save. Confirm the file now appears alongside the two `.gs` files.
+   5. Check that the files are named exactly `Code.gs`, `FirestoreBackend.gs`, and `appsscript.json`. Do not add the service-account JSON key file to this project.
 
-1. Dans l'éditeur Apps Script, effacez tout le code contenu dans le fichier `Code.gs`.
-2. Ouvrez le fichier local [`Code.gs`](./Code.gs) fourni dans ce projet, copiez l'intégralité de son contenu et collez-le dans l'éditeur Google Apps Script.
-3. Cliquez sur l'icône **Enregistrer** (disquette ou `Ctrl+S`).
-4. **Initialisation automatique de la base de données :**
-   - Dans la barre d'outils en haut de l'éditeur Apps Script, sélectionnez la fonction `setupDatabase` dans la liste déroulante des fonctions.
-   - Cliquez sur **Exécuter** (▶️).
-   - Google va vous demander d'autoriser l'accès aux feuilles de calcul de votre compte. Cliquez sur **Examiner les autorisations**, choisissez votre compte Google, cliquez sur **Paramètres avancés** (en bas à gauche), puis sur **Accéder à L-Karne-Backend (non sécurisé)** et enfin **Autoriser**.
-   - Dans le journal d'exécution, vous verrez un message de réussite et le PIN initial de l’admin. Notez-le immédiatement et gardez-le privé; il n’est pas affiché dans l’application ni envoyé aux clients.
-5. Retournez sur l'onglet de votre feuille de calcul Google Sheets : vous constaterez que les onglets ont été automatiquement créés et configurés :
-   - **`Products`** : pré-rempli avec les 65 produits et prix du deuxième onglet de `Selma-7anota.xlsx`. Le stock initial est à zéro, car le classeur ne contient pas les quantités.
-   - **`Users`** : contient les 36 clients du premier onglet avec leur solde. Solde positif = dette du client; solde négatif = avance/crédit; cellule vide = zéro. Les identifiants et PINs restent vides tant que le client n’active pas son compte.
-   - **`Invites`** : contient un code privé à usage unique par client. Copiez chaque code et transmettez-le uniquement à son propriétaire. Ne partagez jamais cette feuille ni le Google Sheet.
-   - **`Transactions`** : tableau de suivi vierge prêt à enregistrer chaque opération.
-   - **`Settings`** : conserve le dernier montant de caisse que vous avez compté.
+   This project must be a new standalone Apps Script project, not the script bound to the old Google Sheet. Replacing the starter `Code.gs` here does not alter the old app.
+3. Link Apps Script to the Firebase Google Cloud project and grant the script owner Firestore access:
+   1. In Firebase Console, open **Project settings → General**. In **Your project**, copy the **Project number** (a number, not the Project ID).
+   2. Open the [Google Cloud Console](https://console.cloud.google.com/). Use the project selector at the top to select the **same project as Firebase**. Verify its project ID and number match **Firebase Console → Project settings → General** before changing anything. For example, if Firebase shows project ID `l-karne`, do not continue while the Cloud Console selector shows `angular-login`. If Google displays **Configure your OAuth consent screen** or **Configure your OAuth consent details**, follow the next step before trying to link Apps Script.
+   3. Set up the OAuth consent screen: go to **Google Auth Platform → Branding** (or open the **OAuth consent screen** setup link shown in Apps Script). Click **Get started** if prompted. Enter `L-Karne Apps Script Backend` as the app name and choose your own email for **User support email**. Continue to **Audience**:
+      - If your Google account is a regular Gmail account, choose **External**.
+      - Choose **Internal** only if this is a Google Workspace account and only people in that same Workspace organization will authorize the script.
+      Then enter your email as the **Contact information** email, accept the policy, and click **Create**. Leave the app in **Testing**; do not publish it or request verification for this personal Apps Script setup. If **Test users → Add users** is available and accepts your account, you may add it. If Google reports your Gmail account as ineligible or the test-user section is absent, do not switch the app to **Internal** or publish it; continue to link the new Apps Script project below, then authorize the script when prompted. If authorization shows a specific tester restriction, stop and resolve that error before running the migration.
+   4. Return to the new Apps Script project and open **Project Settings** (gear icon). Under **Google Cloud Platform (GCP) Project**, click **Change project**. If the page still shows the OAuth consent warning, finish the consent setup and reload Project Settings.
+   5. Paste the Firebase **Project number** into **GCP project number** and click **Set project**. Do not use the Project ID. Read the warning and confirm only if the page still shows the intended Firebase project number.
 
-Si vous avez déjà initialisé une feuille avec les données de test, vérifiez qu’elle ne contient que des données à supprimer, puis sélectionnez et exécutez **`replaceDemoDataWithWorkbook`** dans Apps Script. Cette opération efface les anciens produits, comptes, transactions, paramètres de caisse et codes d’invitation avant de charger les données du classeur et de générer un nouveau PIN admin. Elle invalide également les sessions déjà ouvertes. Elle est volontairement manuelle et destructive. Pour conserver les données existantes, n’exécutez pas cette fonction.
+      **Important:** Google warns that changing the Cloud project revokes existing authorizations for the Apps Script project and cannot be reverted to an Apps Script-managed project. This guide has you create a new standalone script specifically so the old deployed script and its authorizations remain untouched. Do not change the Cloud project of the old script.
+   6. In Google Cloud Console, make sure the project selector shows **L-Karne** / project ID `l-karne` (the Apps Script Settings screenshot should also show project number `83066107206`). Open **IAM & Admin** from the left navigation menu, then click **IAM**.
+   7. On the IAM page, click **Grant access** near the top. In **New principals**, type the Google email address of the account that will own and deploy the new Apps Script web app. Use the same account you plan to choose for **Execute as** during deployment; do not enter a client email.
+   8. Click **Select a role**. In the role search box, type `Cloud Datastore User`, select **Cloud Datastore User** (role ID `roles/datastore.user`), then click **Save**. Do not grant Owner or Editor. If the account already has this role, leave the existing grant in place rather than adding a duplicate.
+   9. Enable/check the Firestore API: in the Cloud Console left navigation, open **APIs & Services → Enabled APIs & services**. Search the enabled API list for **Cloud Firestore API**. If it appears as enabled, continue. If not, click **Enable APIs and services**, search for **Cloud Firestore API**, open its result, and click **Enable**. Wait until the API page confirms it is enabled.
 
-Pour conserver les données d’une base déjà en service tout en appliquant la normalisation du catalogue café, exécutez **`setupDatabase`** dans Apps Script. Cette opération ne supprime ni les comptes, ni les soldes, ni les transactions; elle renomme Coffee L'OR en `Capsule L'or` et laisse active une seule variante de café (celle avec le stock positif le plus élevé, ou la variante L'OR si aucune n’a de stock). Les autres variantes restent dans la feuille, désactivées pour l’application.
+   The Apps Script manifest already requests the `datastore` OAuth scope. When you first run the migration, Apps Script will ask you to authorize its requested Sheets, Firestore, and external-request access. For more information, see Google's [Apps Script Cloud projects guide](https://developers.google.com/apps-script/guides/cloud-platform-projects) and [Firestore IAM documentation](https://cloud.google.com/firestore/docs/security/iam).
+4. Create the service account and download its JSON key for signing Firebase custom-auth tokens:
+   1. In the Google Cloud Console, confirm the selected project is **L-Karne** (`l-karne`). Open **☰ Navigation menu → IAM & Admin → Service Accounts**. You can also open the [Service Accounts page for L-Karne](https://console.cloud.google.com/iam-admin/serviceaccounts?project=l-karne).
+   2. Click **Create service account**. For the name, enter `l-karne-token-signer`; let Google fill the service account ID. Optionally enter `Signs Firebase custom login tokens` as the description, then click **Create and continue**.
+   3. On **Grant this service account access to project**, do not add a project role for this token-signing-only account; click **Continue**, then **Done**. The Apps Script user's Cloud Datastore User role is separate and is already granted in the previous step.
+   4. In the service accounts list, click `l-karne-token-signer`. Open the **Keys** tab, click **Add key → Create new key**, select **JSON**, then click **Create**. Google downloads a `.json` key file. If key creation is blocked by an organization policy, stop; do not weaken the policy or share another service account's key. Ask the Google Cloud organization administrator to review the restriction.
+   5. Keep the downloaded JSON file private on your computer. Open it locally with a text editor. In Apps Script **Project Settings → Script properties**, copy only `client_email` into `FIREBASE_SERVICE_ACCOUNT_EMAIL` and the complete `private_key` string into `FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY`. Preserve the entire `-----BEGIN PRIVATE KEY-----` / `-----END PRIVATE KEY-----` value. Never upload the JSON file to GitHub, put it in the web app, or send it in chat. Do not delete the local JSON file until you have successfully tested custom-token login; after that, store it in a secure password manager or securely delete it.
+5. In Apps Script **Project Settings → Script properties**, add:
 
-La récupération du PIN ajoute automatiquement les colonnes `pin_reset_required`, `pin_reset_requested_at` et `session_version` à l’onglet `Users` lors de l’initialisation ou du premier accès. Un client demande le reset depuis l’écran de connexion; l’administrateur vérifie son identité en personne puis lui remet directement le PIN temporaire affiché une seule fois. Le client doit créer son nouveau PIN avant que les autres fonctions deviennent accessibles.
+   | Property | Value |
+   | --- | --- |
+   | `SOURCE_SPREADSHEET_ID` | The ID from the Google Sheet URL (between `/d/` and `/edit`) |
+   | `FIREBASE_PROJECT_ID` | The Firebase **Project ID** from Firebase Console → Project settings → General |
+   | `FIREBASE_SERVICE_ACCOUNT_EMAIL` | `client_email` from the downloaded service-account JSON key |
+   | `FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY` | The complete `private_key` value from that JSON key, including its `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` lines |
 
----
+   From the values collected so far, use the Sheet ID you provided for `SOURCE_SPREADSHEET_ID` and `l-karne` for `FIREBASE_PROJECT_ID`. The Apps Script project number (`83066107206`) is **not** the value for `FIREBASE_PROJECT_ID`.
 
-## 🚀 Étape 3 : Déploiement en tant qu'Application Web
+   The `apiKey`, `authDomain`, and `appId` from the Firebase **Web app config** do **not** go in Script Properties. Add them later as GitHub Actions repository variables in Step 5. `FIREBASE_SERVICE_ACCOUNT_EMAIL` and `FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY` come from the service-account JSON key created in Step 4; do not paste that JSON, its private key, or any PIN/invitation code into chat or the repository. In the private-key property, preserve the full key exactly; if it is shown with literal `\n` sequences, keep them as provided.
 
-Pour que le frontend puisse communiquer avec votre backend Google Apps Script :
+   Keep the private key only in Apps Script Script Properties. Do not set `FIRESTORE_ENABLED` manually; the migration enables it after verification.
 
-1. En haut à droite de l'éditeur Apps Script, cliquez sur le bouton bleu **Déployer** > **Nouveau déploiement**.
-2. Cliquez sur la roue crantée à gauche de *Sélectionner un type* et choisissez **Application Web**.
-3. Remplissez les paramètres **exactement** comme suit :
-   - **Description** : `L-Karne Production API v1`
-   - **Exécuter en tant que** : **Moi** (`votre.email@gmail.com`)
-   - **Qui a accès** : **Tout le monde** (*Anyone*) — *Indispensable pour permettre aux requêtes CORS du frontend GitHub Pages d'interroger l'API sans exposer vos identifiants Google*.
-4. Cliquez sur **Déployer**.
-5. Copiez l'**URL de l'application Web** générée. Elle ressemble à :
-   `https://script.google.com/macros/s/AKfycbx.../exec`
-   *(Gardez cette URL précieusement)*.
+### 3. Migrate the records
 
-> [!TIP]
-> Si vous modifiez `Code.gs` ultérieurement, veillez à faire **Déployer** > **Gérer les déploiements** > Cliquez sur l'icône crayon > Sélectionnez **Nouvelle version** > **Déployer**. Les changements de `index.html` doivent également être publiés sur GitHub Pages.
+The migration copies data into Firestore. It does not modify the source spreadsheet, but **it writes data and must be run only once against the intended empty Firestore database**.
 
-> [!IMPORTANT]
-> Pour un achat, l’application écrit d’abord une ligne `PENDING` dans `Transactions`, puis met à jour le stock et, si nécessaire, le solde du client. La transaction devient `COMPLETE` seulement après vérification; seules les lignes `COMPLETE` sont affichées dans l’historique et comptabilisées dans la caisse. En cas d’échec, les changements sont annulés autant que possible et la ligne passe à `FAILED`. Google Sheets ne prend pas en charge une transaction atomique entre plusieurs onglets; si l’application indique que l’annulation n’a pas pu être vérifiée, ne réessayez pas avant que l’administrateur ait vérifié `Products`, `Users` et `Transactions`. Les anciennes lignes sans état restent considérées comme terminées.
+#### Before running it
 
-> [!NOTE]
-> Les colonnes `status`, `cancel_status`, `cancel_requested_at`, `cancel_decided_at` et `cancel_decided_by` sont créées automatiquement par le nouveau code si elles n’existent pas. Après avoir remplacé le code dans Apps Script et publié une nouvelle version du déploiement, publiez également le frontend mis à jour sur GitHub Pages.
+1. **Pause changes in the old app** for the migration window. The import is a one-time snapshot; purchases, payments, stock changes, or account edits made to the old Sheet after the import will not automatically appear in Firestore.
+2. In the Firebase Console, open **Firestore Database → Data**. Confirm this is project `l-karne` and the `(default)` database has no collections/documents. If you already see data, stop; do not run this import over it.
+3. Open the source Sheet identified by `SOURCE_SPREADSHEET_ID`. Confirm it is the intended, most recent spreadsheet and contains these tabs: `Products`, `Users`, `Transactions`, `Settings`, and `Invites`. Check the row counts look plausible. Use the current Sheet if it is newer than the downloaded Excel copy.
+4. In Apps Script **Project Settings → Script properties**, verify that `SOURCE_SPREADSHEET_ID` is the ID of that exact Sheet, `FIREBASE_PROJECT_ID` is `l-karne`, and the service-account email/private-key properties are present. Never paste the private key into the execution log or share it.
+5. Make sure the new standalone Apps Script project is selected—not the script bound to the old Sheet. The source spreadsheet remains unchanged by this standalone project.
 
-> [!IMPORTANT]
-> Le client peut demander l’annulation d’un achat depuis son historique. L’administrateur traite la demande dans **Activité récente** avec **Approuver** ou **Refuser**; il peut également annuler directement un achat terminé. L’approbation rétablit le stock et corrige le solde dû. Pour un achat payé, l’administrateur doit d’abord récupérer l’article et rembourser l’argent en espèces : l’application enregistre alors le remboursement et le déduit de la caisse. Chaque annulation approuvée est conservée comme une nouvelle ligne d’audit dans `Transactions`.
+#### Run and verify
 
----
+1. In the new Apps Script editor, open **Editor** from the left sidebar.
+2. At the top toolbar, open the function selector (beside **Run** and **Debug**) and choose **`migrateCurrentSheetsToFirestore`**. If the function is missing, confirm `FirestoreBackend.gs` was added and saved, then reload the editor.
+3. Click **Run**. On the first run, Google shows an authorization dialog. Select the Google account that owns/runs this new script, review the requested access to the spreadsheet, Firestore, and external requests, then click **Allow**. If Google displays an organization/tester restriction or an unexpected permission request, stop and resolve that before continuing; do not publish the OAuth app or change the old script.
+4. Wait for the run to finish. In the left sidebar, open **Executions** (clock/list icon), select the latest `migrateCurrentSheetsToFirestore` execution, and check that its status is **Completed**. Open its logs and confirm there is a line beginning `Firestore migration verified:` followed by counts for each imported collection. The execution must not show an error.
+5. The migration verifies every imported source row and each public user profile before it sets `FIRESTORE_MIGRATION_COMPLETE` and `FIRESTORE_ENABLED`. After successful verification, do not run the migration again. Continue to deploy the new web app in Step 4.
 
-## 🌐 Étape 4 : Configuration & Liaison avec le Frontend
+If the execution fails, times out, is denied permission, or does not show the verification log, stop. **Do not click Run again**: some Firestore writes may already have succeeded, and the migration intentionally refuses a second run only after a fully verified run. Keep the old app and Sheet as they are, and resolve the specific error before deciding how to clean up or resume. You may share the non-sensitive error text, but remove email addresses, spreadsheet IDs, PINs, invite codes, and all key material.
 
-1. Ouvrez le fichier [`index.html`](./index.html) dans votre navigateur (ou sur votre téléphone/tablette).
-2. Cliquez sur l'icône **⚙️ (Paramètres)** en haut à droite (ou sur le badge *Backend non configuré*).
-3. Dans le champ **URL Web App**, collez votre URL Apps Script copiée à l'étape précédente.
-4. Cliquez sur **Tester la connexion** : vous devriez voir un toast vert `Connexion réussie avec Google Sheets ! 🟢`.
-5. Cliquez sur **Enregistrer**. Le badge en haut devient vert : `Google Sheets Connecté`.
-6. Répétez cette configuration sur chaque appareil. Connectez-vous avec `admin` et le PIN initial noté dans le journal d’exécution. Ouvrez le tableau de bord pour saisir le montant réellement compté dans la caisse; après un nouveau comptage, saisissez-le à nouveau.
-7. Remettez à chaque client uniquement son code privé. Il crée son identifiant et son PIN depuis **Créer un compte**; l’inscription active sa fiche importée et conserve automatiquement son solde. Un code est utilisable une seule fois.
-8. Pour obtenir la liste des codes avec les noms correspondants, connectez-vous comme admin et cliquez sur **Exporter les codes**. Le CSV ne contient que les invitations non utilisées; gardez-le privé et remettez chaque code uniquement à son propriétaire.
-9. Dans l’onglet admin **Gestion du stock**, cliquez **Achat** pour ajouter un produit nouvellement acheté : saisissez la quantité reçue et le coût total payé (pas le coût unitaire), puis enregistrez. Le stock augmente, la dépense apparaît dans l’activité et son montant est déduit de la **Caisse enregistrée** depuis le dernier comptage. Si vous refaites un comptage réel de la caisse, ce nouveau comptage devient la base des calculs suivants.
-10. Lors de la création d’un nouveau produit, saisissez également le **Coût total payé (DH)** si son stock initial vient d’être acheté. Le produit est créé, son stock initial est ajouté et le coût est enregistré/déduit de la caisse. Laissez le coût vide si vous saisissez du stock déjà présent ou repris lors du démarrage de l’application.
-11. Le bouton **Retirer** sert uniquement à corriger le stock à la baisse; saisissez le nombre d’unités à retirer dans la fenêtre de confirmation. Cette correction ne comptabilise pas de dépense et le stock ne peut pas devenir négatif.
-12. Le stock de `Tea (3pc)` et `Trident (3pc)` est saisi en pièces physiques. Lorsqu’un client prend une portion, le prix affiché est facturé une fois et trois pièces sont retirées; le catalogue indique le nombre de portions complètes disponibles. Saisissez également en pièces physiques toute quantité ajoutée par **Achat**.
-13. Pour régler une dette, saisissez un montant positif; pour annuler un paiement saisi en trop, saisissez un montant négatif. La correction ajuste le solde du client et la caisse.
-14. Pour corriger un produit, cliquez sur l’icône crayon dans sa ligne d’inventaire. La fenêtre affiche son nom, son prix de vente et sa catégorie actuels; vous pouvez modifier le nom et le prix, choisir une catégorie existante ou sélectionner **+ Ajouter une catégorie…** pour en saisir une nouvelle. Cliquez **Enregistrer** pour sauvegarder. Le changement n’affecte ni le stock ni les transactions déjà enregistrées.
-15. Pour un produit existant, ouvrez **Chercher** dans sa ligne d’inventaire, choisissez une photo autorisée du bon emballage, copiez son adresse directe HTTPS (pas l’adresse de la page de résultats), collez-la dans le champ URL puis cliquez **Image**. La même adresse peut être saisie lors de la création d’un produit. L’application stocke uniquement le lien dans `Products.image_url`; elle ne téléverse pas les fichiers. Jusqu’à ce que des URLs de photos soient enregistrées, les produits existants continuent d’afficher leurs emojis.
+The import preserves source rows, including user PIN hashes and invitations. PIN hashes are stored in the private `UserSecrets` collection; sanitized profiles are stored in `PublicUsers`. The source Sheet is read, not deleted or edited.
 
----
+### 4. Deploy the new Apps Script web app
 
-## 🐙 Étape 5 : Déploiement Gratuit sur GitHub Pages
+The migration execution must show **Completed** and a log beginning `Firestore migration verified:` before you deploy. Once it has verified successfully, do not run the migration again.
 
-### Option A : Déploiement Standard (Recommandé, simple & direct)
+1. In the new standalone Apps Script project, click **Deploy** (top-right) → **New deployment**.
+2. In the dialog, click the **gear icon** beside **Select type** and choose **Web app**.
+3. For **Description**, enter `L-Karne Firebase backend`.
+4. For **Execute as**, choose **Me** (the Google account that owns this new script and has Firestore access).
+5. For **Who has access**, choose **Anyone**. This allows the public PWA to call the endpoint; it does not grant direct Firestore access. The backend still validates application sessions and roles. If **Anyone** is unavailable or your organization blocks public Apps Script web apps, stop and resolve that restriction rather than changing the old deployment.
+6. Click **Deploy**. If prompted, review and authorize the Apps Script permissions. If Google shows an access/tester restriction or a permission request you do not expect, stop and share the non-sensitive error text before continuing.
+7. When deployment completes, copy the **Web app URL**. It should begin `https://script.google.com/macros/s/` and end `/exec`. Store it somewhere private; you will paste it into the PWA settings in Step 6. Do not use the development `/dev` URL.
+8. Leave the old Apps Script deployment and its URL unchanged. This new `/exec` URL is only for the new PWA backend.
 
-1. Créez un nouveau dépôt public sur GitHub : `https://github.com/new` (nommez-le par exemple `l-karne`).
-2. Dans votre terminal dans ce dossier :
-   ```bash
-   git remote add origin https://github.com/VOTRE_USERNAME/l-karne.git
-   git branch -M main
-   git push -u origin main
+The old Apps Script deployment and its URL should remain unchanged as a fallback until cutover is complete.
+
+### 5. Publish the PWA on GitHub Pages
+
+**Important:** the existing `l-karne` repository's `main` branch currently deploys your old app. Do **not** merge the PWA into that branch or change that repository's Pages settings if you want the old deployed site to keep working. GitHub Pages provides one site per repository; deploying this PWA to the same repository URL would replace the old site.
+
+The safest option is to create a separate public repository, for example `l-karne-mobile`, for the PWA. Its deployment can use `main` because it is a different repository; the existing `l-karne` repository and deployed URL remain unchanged.
+
+1. On GitHub, create a new **empty** public repository named `l-karne-mobile` under `SelmaZeghli`. Do not initialize it with a README, license, or `.gitignore`.
+2. In this local project, change the GitHub Pages base path in [`vite.config.js`](./vite.config.js) from `/l-karne/` to `/l-karne-mobile/`, then save. The deployment URL for the new repository will be `https://selmazeghli.github.io/l-karne-mobile/`.
+3. In VS Code **Source Control**, review the changes on branch `mobile-version` and commit them before pushing. Do not stage or force-add the ignored invitation CSV, Excel exports, credentials, or service-account JSON key.
+4. Add the new repository as a second Git remote, preserving the existing `origin` remote:
+
+   ```powershell
+   git remote add pwa https://github.com/SelmaZeghli/l-karne-mobile.git
+   git push pwa mobile-version:main
    ```
-3. Sur GitHub, ouvrez votre dépôt et allez dans **Settings** > **Pages** (dans le menu latéral gauche).
-4. Sous **Build and deployment** :
-   - **Source** : `Deploy from a branch`
-   - **Branch** : `main` / `/(root)`
-   - Cliquez sur **Save**.
-5. En moins de 60 secondes, votre kiosk sera accessible publiquement à l'adresse :
-   `https://VOTRE_USERNAME.github.io/l-karne/`
 
----
+   Run these commands from the project folder in PowerShell. This publishes the current `mobile-version` branch to `main` in the **new** repository; it does not push to or change the old repository.
+5. In the new `l-karne-mobile` GitHub repository, open **Settings → Pages** and set the build source to **GitHub Actions**.
+6. Open **Settings → Secrets and variables → Actions → Variables** in the new repository and add these four repository variables:
 
-## 🌐 Utilisation depuis les deux étages et à distance
+   | Variable | Firebase Web app value |
+   | --- | --- |
+   | `VITE_FIREBASE_API_KEY` | `apiKey` |
+   | `VITE_FIREBASE_AUTH_DOMAIN` | `authDomain` |
+   | `VITE_FIREBASE_PROJECT_ID` | `projectId` |
+   | `VITE_FIREBASE_APP_ID` | `appId` |
 
-Utilisez l'URL GitHub Pages depuis chaque appareil et configurez une seule fois la même URL Apps Script `/exec`. Les opérations vont directement vers le même Google Sheet, donc les différents réseaux Wi-Fi et le télétravail ne posent pas de problème tant que l'appareil a Internet. Aucun ordinateur du bureau ne doit rester allumé comme serveur.
+   These are public web configuration values. **Never put the service-account private key here.**
+7. In the new repository's **Actions** tab, wait for **Deploy L-Karne to GitHub Pages** to finish successfully.
+8. Open `https://selmazeghli.github.io/l-karne-mobile/` and follow Step 6 to configure and test the backend connection.
 
-Les opérations sont partagées dès leur enregistrement, mais une page déjà ouverte ne reçoit pas de notification automatique pour les changements des autres utilisateurs ; actualisez la vue pour les consulter. En cas de coupure Internet, les ventes ne sont pas synchronisées : attendez le retour de la connexion avant de saisir les opérations. Aucun compte ou produit de démonstration local n’est fourni.
+### 6. Connect and test the app
 
-La caisse indiquée correspond au dernier montant compté + les ventes payées immédiatement + les règlements de dettes reçus depuis ce comptage. Un nouveau comptage remplace la base précédente et évite de compter deux fois les encaissements antérieurs. Le réapprovisionnement n'est pas déduit : cette valeur suit les encaissements, pas le bénéfice net.
+1. In the PWA, open **Settings** (the gear icon or backend status badge).
+2. Paste the new Apps Script `/exec` URL into **Web App URL**, choose **Test connection**, and then **Save**. Configure it once on each device/browser; this setting is stored on that device.
+3. Log in as the admin and check the imported products, stock, balances, cash setting, and transaction history.
+4. Test a client account with its existing username and PIN. Confirm it sees only its own balance and transaction history.
+5. On two separate devices, test an operation and confirm the other device updates. Test purchases, payments, stock restock, and the admin actions you rely on. Use transactions that can safely be reversed; do not use real customer transactions as tests.
+6. On Android, open the published link in Chrome and choose **Install** or **Add to Home screen**. On iPhone, open it in Safari and choose **Share → Add to Home Screen**.
 
----
+### 7. Cut over without losing activity
 
-## 🔑 Comptes & Codes d’Invitation
+1. Keep the old app and spreadsheet available during testing.
+2. When ready to switch, pause new activity in the old app. If any final changes occurred after the migration, they must be accounted for before cutover; the migration is a one-time snapshot and does not continuously copy changes from the old sheet.
+3. Confirm the new PWA works for the admin and at least one client, and confirm real-time updates on two devices.
+4. Give users the one published PWA link and ask them to use only the new app. Keep the old spreadsheet as a private backup.
 
-Le PIN admin est généré lors de l’initialisation et apparaît uniquement dans le journal d’exécution Apps Script. Gardez-le privé. Les clients n’ont pas de PIN par défaut : chacun reçoit son propre code à usage unique de l’onglet `Invites`, puis choisit son identifiant et son PIN. La liste publique de connexion n’affiche que les comptes déjà activés.
+Purchases require an Internet connection. Firebase and Apps Script have free quotas; if a quota is reached, operations may temporarily fail. Check usage periodically. See the official [Firestore quotas](https://firebase.google.com/docs/firestore/quotas), [Apps Script quotas](https://developers.google.com/apps-script/guides/services/quotas), and [Firebase pricing plans](https://firebase.google.com/docs/projects/billing/firebase-pricing-plans).
 
----
+## About migrating the workbook with assistance
 
-## 🔒 Vérification de la Sécurité & Confidentialité
+The workbook can be inspected and its format checked locally, but this assistant cannot sign in to your Google, GitHub, or Firebase accounts or access your Firebase database without account authorization. Do **not** send account passwords, service-account keys, client PINs, or invitation codes. The safest route is to run the migration function above from your own Apps Script project: it reads the spreadsheet inside your Google account and writes to your Firebase project without sending client records to this chat.
 
-1. **Test DevTools Network :**
-   - Créez un compte client avec un code d’invitation et connectez-vous avec le PIN choisi.
-   - Ouvrez l'inspecteur du navigateur (`F12` > onglet **Réseau** / **Network**).
-   - Effectuez un achat ou rafraîchissez la page.
-   - Inspectez la réponse de `colleague/dashboard` : vous constaterez que **seules** les données et la dette du compte connecté sont renvoyées par le serveur. Les soldes des autres clients et le total du bureau sont filtrés en amont sur Google Apps Script et ne transitent jamais sur le réseau.
-2. **Test Concurrence :**
-   - `LockService` garantit qu'en cas de double-clic rapide ou de 2 collègues achetant le dernier article au même moment, l'un des deux sera servi et le second recevra une alerte *Stock insuffisant*, sans corrompre le fichier Google Sheets.
+The supplied workbook's tab names and headers match the migration format, and its `Invites` tab already contains invitation data. There is no need to upload the workbook or CSV here again. If the workbook is not the newest copy, use the live Google Sheet or make a new export before migration.
+
+## Historical Google Sheets-only setup
+
+The steps below are for the original Sheets-backed deployment only. They are not part of the Firestore migration. Do not run `setupDatabase` or `replaceDemoDataWithWorkbook` in the new Firestore project after migration.
+
+1. Create or open the original Google Sheet and its bound Apps Script project. The new PWA uses the same existing screens, now packaged in React; see [`public/legacy.html`](./public/legacy.html).
+2. To deploy a Sheets-only backend, use the Apps Script code and manifest, run `setupDatabase` only when initializing a new database, and deploy it as a web app executing as you and accessible to anyone.
+3. In the app's **Settings**, save that deployment's `/exec` URL and test the connection.
+4. Only run `replaceDemoDataWithWorkbook` if you explicitly intend to erase the existing products, users, transactions, cash settings, and invitations. It is destructive and invalidates existing sessions.
+
+For the PWA/Firebase deployment, follow the Spark setup above instead of this historical section.

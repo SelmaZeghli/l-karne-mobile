@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasActiveSession() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/PublicUsers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/PublicUsers/$(request.auth.uid)).data.pin_reset_required == false &&
+        get(/databases/$(database)/documents/PublicUsers/$(request.auth.uid)).data.session_version ==
+          request.auth.token.sessionVersion &&
+        get(/databases/$(database)/documents/PublicUsers/$(request.auth.uid)).data.role ==
+          request.auth.token.role;
+    }
+
+    function isAdmin() {
+      return hasActiveSession() && request.auth.token.role == 'admin';
+    }
+
+    match /Products/{productId} {
+      allow read: if hasActiveSession();
+      allow write: if false;
+    }
+
+    match /PublicUsers/{userId} {
+      allow read: if hasActiveSession() && (isAdmin() || request.auth.uid == userId);
+      allow write: if false;
+    }
+
+    match /Transactions/{transactionId} {
+      allow read: if hasActiveSession() &&
+        (isAdmin() || resource.data.user_id == request.auth.uid);
+      allow write: if false;
+    }
+
+    match /Settings/{settingId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /Invites/{inviteId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /UserSecrets/{userId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

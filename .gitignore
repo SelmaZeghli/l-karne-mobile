@@ -1,2 +1,4 @@
 codes-invitation-clients.csv
 *.xlsx
+node_modules/
+dist/

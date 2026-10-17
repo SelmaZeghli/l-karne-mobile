@@ -8,6 +8,11 @@ on:
     paths:
       - "index.html"
       - "l_karn_snackbox_bureau.html"
+      - "public/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.js"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -33,15 +38,26 @@ jobs:
       - name: Set up GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Prepare public site files
-        run: |
-          mkdir site
-          cp index.html l_karn_snackbox_bureau.html site/
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build PWA
+        run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
 
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: dist
 
       - name: Deploy to GitHub Pages
         id: deployment
