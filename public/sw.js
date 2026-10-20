@@ -1,4 +1,4 @@
-const CACHE_NAME = 'l-karne-shell-v2';
+const CACHE_NAME = 'l-karne-shell-v3';
 const SHELL_URLS = [
   './',
   './manifest.webmanifest',

@@ -5,44 +5,276 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function hasActiveSession() {
-      return signedIn() &&
-        exists(/databases/$(database)/documents/PublicUsers/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/PublicUsers/$(request.auth.uid)).data.pin_reset_required == false &&
-        get(/databases/$(database)/documents/PublicUsers/$(request.auth.uid)).data.session_version ==
-          request.auth.token.sessionVersion &&
-        get(/databases/$(database)/documents/PublicUsers/$(request.auth.uid)).data.role ==
-          request.auth.token.role;
+    function linkPath(uid) {
+      return /databases/$(database)/documents/UserAuthLinks/$(uid);
+    }
+
+    function profilePath(userId) {
+      return /databases/$(database)/documents/PublicUsers/$(userId);
+    }
+
+    function invitePath(code) {
+      return /databases/$(database)/documents/AccountInvites/$(code);
+    }
+
+    function transactionPath(transactionId) {
+      return /databases/$(database)/documents/Transactions/$(transactionId);
+    }
+
+    function productPath(productId) {
+      return /databases/$(database)/documents/Products/$(productId);
+    }
+
+    function hasLink() {
+      return signedIn() && exists(linkPath(request.auth.uid));
+    }
+
+    function linkedUserId() {
+      return hasLink() ? get(linkPath(request.auth.uid)).data.user_id : '';
+    }
+
+    function ownsProfile(userId) {
+      return hasLink() && linkedUserId() == userId;
     }
 
     function isAdmin() {
-      return hasActiveSession() && request.auth.token.role == 'admin';
+      return hasLink() &&
+        get(profilePath(linkedUserId())).data.role.lower() == 'admin' &&
+        get(linkPath(request.auth.uid)).data.role.lower() == 'admin';
+    }
+
+    function ownsProfileAfter(userId) {
+      return signedIn() && (
+        ownsProfile(userId) ||
+        (existsAfter(linkPath(request.auth.uid)) &&
+          getAfter(linkPath(request.auth.uid)).data.user_id == userId)
+      );
+    }
+
+    function roundedMoney(value) {
+      return math.round(value * 100) / 100;
+    }
+
+    function saleUnits(productId, productName) {
+      return productId in ['p47', 'p60'] ||
+        productName.lower().matches('^(tea|trident)\\s*\\(\\s*3\\s*pc\\s*\\)$') ? 3 : 1;
+    }
+
+    function isDiscountedCoffee(profile, product) {
+      return (profile.username.lower() == 'achraf' ||
+          profile.name.lower().matches('^achraf($|[^a-z0-9].*)')) &&
+        (product.name.lower() == 'coffee' ||
+          product.name.lower().matches('.*l.?or.*'));
+    }
+
+    function transactionItemName(productName, itemName) {
+      let name = productName.lower();
+      let shownAsCoffee = name == 'coffee' ||
+        name.matches('^(coffee\\s*)?l.?or($|[^a-z0-9].*)') ||
+        name.matches('^capsule\\s+l.?or($|[^a-z0-9].*)');
+      return shownAsCoffee ? itemName == "Capsule L'or" : itemName == productName;
+    }
+
+    function userCanClaimUsername(userId) {
+      let userLink = getAfter(linkPath(request.auth.uid)).data;
+      let code = userLink.invite_code;
+      let claimedInvite = getAfter(invitePath(code)).data;
+      return signedIn() &&
+        ownsProfileAfter(userId) &&
+        request.resource.data.username is string &&
+        request.resource.data.username.matches('^[a-z0-9._-]{3,30}$') &&
+        (!resource.data.keys().hasAny(['username']) ||
+          resource.data.username == '' ||
+          resource.data.username.lower() == request.resource.data.username.lower()) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['username']) &&
+        userLink.user_id == userId &&
+        claimedInvite.user_id == userId &&
+        claimedInvite.claimed_by == request.auth.uid;
+    }
+
+    function userCanUpdatePurchaseBalance(userId) {
+      let transactionId = request.resource.data._last_user_purchase_id;
+      let purchase = getAfter(transactionPath(transactionId)).data;
+      let fields = request.resource.data.diff(resource.data).affectedKeys();
+      return ownsProfile(userId) &&
+        fields.hasOnly(['balance_mad', '_last_user_purchase_id']) &&
+        request.resource.data._last_user_purchase_id is string &&
+        existsAfter(transactionPath(transactionId)) &&
+        purchase.type == 'purchase' &&
+        purchase.user_id == userId &&
+        purchase.status == 'COMPLETE' &&
+        resource.data.balance_mad is number &&
+        request.resource.data.balance_mad is number &&
+        purchase.amount_mad is number &&
+        (purchase.paid == true
+          ? request.resource.data.balance_mad == resource.data.balance_mad
+          : request.resource.data.balance_mad ==
+            roundedMoney(resource.data.balance_mad + purchase.amount_mad));
+    }
+
+    function userCanRequestCancellation() {
+      let fields = request.resource.data.diff(resource.data).affectedKeys();
+      return ownsProfile(resource.data.user_id) &&
+        resource.data.type == 'purchase' &&
+        resource.data.status == 'COMPLETE' &&
+        resource.data.cancel_status != 'APPROVED' &&
+        request.resource.data.cancel_status == 'REQUESTED' &&
+        fields.hasOnly([
+          'cancel_status', 'cancel_requested_at', 'cancel_decided_at', 'cancel_decided_by'
+        ]) &&
+        request.resource.data.cancel_requested_at is string &&
+        request.resource.data.cancel_decided_at == '' &&
+        request.resource.data.cancel_decided_by == '';
+    }
+
+    function userCanUpdatePurchaseStock(productId) {
+      let transactionId = request.resource.data._last_user_purchase_id;
+      let purchase = getAfter(transactionPath(transactionId)).data;
+      let fields = request.resource.data.diff(resource.data).affectedKeys();
+      let units = saleUnits(productId, resource.data.name);
+      return hasLink() &&
+        fields.hasOnly(['stock_qty', '_last_user_purchase_id']) &&
+        fields.hasAll(['stock_qty', '_last_user_purchase_id']) &&
+        request.resource.data._last_user_purchase_id is string &&
+        existsAfter(transactionPath(transactionId)) &&
+        purchase.type == 'purchase' &&
+        purchase.status == 'COMPLETE' &&
+        purchase.user_id == linkedUserId() &&
+        purchase.item_id == productId &&
+        purchase.quantity is int &&
+        purchase.quantity > 0 &&
+        resource.data.is_active == true &&
+        resource.data.stock_qty is number &&
+        request.resource.data.stock_qty is number &&
+        request.resource.data.stock_qty >= 0 &&
+        resource.data.stock_qty - request.resource.data.stock_qty ==
+          purchase.quantity * units;
+    }
+
+    function userCanCreatePurchase(transactionId) {
+      let purchase = request.resource.data;
+      let product = get(productPath(purchase.item_id)).data;
+      let updatedProduct = getAfter(productPath(purchase.item_id)).data;
+      let profile = get(profilePath(purchase.user_id)).data;
+      let updatedProfile = getAfter(profilePath(purchase.user_id)).data;
+      let units = saleUnits(purchase.item_id, product.name);
+      let unitPrice = isDiscountedCoffee(profile, product) ? 3.5 : product.price_mad;
+      return hasLink() &&
+        purchase.id == transactionId &&
+        purchase.type == 'purchase' &&
+        purchase.status == 'COMPLETE' &&
+        purchase.user_id == linkedUserId() &&
+        purchase.user_name == profile.name &&
+        purchase.item_id is string &&
+        purchase.item_name is string &&
+        transactionItemName(product.name, purchase.item_name) &&
+        purchase.quantity is int &&
+        purchase.quantity > 0 &&
+        purchase.amount_mad is number &&
+        purchase.amount_mad == roundedMoney(unitPrice * purchase.quantity) &&
+        purchase.paid is bool &&
+        purchase.cancel_status == '' &&
+        purchase.cancel_requested_at == '' &&
+        purchase.cancel_decided_at == '' &&
+        purchase.cancel_decided_by == '' &&
+        purchase.timestamp is string &&
+        purchase.notes is string &&
+        product.is_active == true &&
+        product.price_mad is number &&
+        product.stock_qty is number &&
+        updatedProduct.stock_qty == product.stock_qty - purchase.quantity * units &&
+        updatedProduct._last_user_purchase_id == transactionId &&
+        updatedProfile._last_user_purchase_id == transactionId &&
+        (purchase.paid
+          ? updatedProfile.balance_mad == profile.balance_mad
+          : updatedProfile.balance_mad ==
+            roundedMoney(profile.balance_mad + purchase.amount_mad)) &&
+        request.resource.data.keys().hasOnly([
+          'id', 'timestamp', 'user_id', 'user_name', 'type', 'item_id',
+          'item_name', 'quantity', 'amount_mad', 'notes', 'paid', 'status',
+          'cancel_status', 'cancel_requested_at', 'cancel_decided_at',
+          'cancel_decided_by', '_row', '_position'
+        ]);
     }
 
     match /Products/{productId} {
-      allow read: if hasActiveSession();
-      allow write: if false;
+      allow read: if hasLink();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || userCanUpdatePurchaseStock(productId);
     }
 
     match /PublicUsers/{userId} {
-      allow read: if hasActiveSession() && (isAdmin() || request.auth.uid == userId);
-      allow write: if false;
+      allow get: if isAdmin() || ownsProfile(userId);
+      allow list: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        userCanClaimUsername(userId) ||
+        userCanUpdatePurchaseBalance(userId);
     }
 
     match /Transactions/{transactionId} {
-      allow read: if hasActiveSession() &&
-        (isAdmin() || resource.data.user_id == request.auth.uid);
-      allow write: if false;
+      allow get: if transactionId == '_schema' ? hasLink() :
+        (isAdmin() || (hasLink() && resource.data.user_id == linkedUserId()));
+      allow list: if isAdmin() ||
+        (hasLink() && resource.data.user_id == linkedUserId());
+      allow create: if isAdmin() || userCanCreatePurchase(transactionId);
+      allow update: if isAdmin() || userCanRequestCancellation();
+      allow delete: if isAdmin();
     }
 
     match /Settings/{settingId} {
-      allow read: if isAdmin();
-      allow write: if false;
+      allow read, write: if isAdmin();
     }
 
-    match /Invites/{inviteId} {
-      allow read: if isAdmin();
-      allow write: if false;
+    match /UserAuthLinks/{uid} {
+      allow get: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (
+        signedIn() &&
+        request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly([
+          'user_id', 'username', 'role', 'linked_at', 'invite_code'
+        ]) &&
+        request.resource.data.role == 'user' &&
+        request.auth.token.email ==
+          request.resource.data.username + '@auth.lkarne.invalid' &&
+        request.resource.data.username.matches('^[a-z0-9._-]{3,30}$') &&
+        exists(profilePath(request.resource.data.user_id)) &&
+        (!get(profilePath(request.resource.data.user_id)).data.keys().hasAny(['role']) ||
+          get(profilePath(request.resource.data.user_id)).data.role.lower() == 'user') &&
+        (!get(profilePath(request.resource.data.user_id)).data.keys().hasAny(['username']) ||
+          get(profilePath(request.resource.data.user_id)).data.username == '' ||
+          get(profilePath(request.resource.data.user_id)).data.username.lower() ==
+            request.resource.data.username) &&
+        existsAfter(invitePath(request.resource.data.invite_code)) &&
+        getAfter(invitePath(request.resource.data.invite_code)).data.user_id ==
+          request.resource.data.user_id &&
+        (getAfter(invitePath(request.resource.data.invite_code)).data.username == '' ||
+          getAfter(invitePath(request.resource.data.invite_code)).data.username ==
+            request.resource.data.username) &&
+        getAfter(invitePath(request.resource.data.invite_code)).data.claimed_by == uid
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    match /AccountInvites/{inviteCode} {
+      allow get: if !exists(invitePath(inviteCode)) ||
+        isAdmin() ||
+        resource.data.claimed_by == '' ||
+        (signedIn() && resource.data.claimed_by == request.auth.uid);
+      allow list: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        signedIn() &&
+        resource.data.claimed_by == '' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'claimed_by', 'claimed_at'
+        ]) &&
+        request.resource.data.claimed_by == request.auth.uid &&
+        request.resource.data.claimed_at is string &&
+        existsAfter(linkPath(request.auth.uid)) &&
+        getAfter(linkPath(request.auth.uid)).data.user_id == resource.data.user_id
+      );
     }
 
     match /UserSecrets/{userId} {

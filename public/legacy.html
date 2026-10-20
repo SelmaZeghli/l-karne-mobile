@@ -58,10 +58,6 @@
     .tap-effect:active {
       transform: scale(0.96);
     }
-    .pin-dot.filled {
-      background-color: #059669;
-      transform: scale(1.15);
-    }
   </style>
 </head>
 
@@ -138,20 +134,14 @@
 
         <!-- Connection Status & Controls -->
         <div class="flex items-center gap-2 sm:gap-3">
-          <!-- Backend Live/Mock status pill -->
-          <div id="backend-status-pill" onclick="openModal('settings-modal')" class="cursor-pointer flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition">
-            <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-            <span id="backend-status-text">Backend non configuré</span>
+          <div id="backend-status-pill" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span id="backend-status-text">Firebase</span>
           </div>
 
           <!-- Sound Mute/Unmute -->
           <button onclick="toggleSound()" title="Activer/Désactiver son" class="p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition border border-slate-200">
             <i id="sound-icon" data-lucide="volume-2" class="w-4 h-4"></i>
-          </button>
-
-          <!-- Settings (Configure Apps Script URL) -->
-          <button onclick="openModal('settings-modal')" title="Configuration API Google Sheets" class="p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition border border-slate-200">
-            <i data-lucide="settings" class="w-4 h-4"></i>
           </button>
 
           <!-- Logged-in Colleague Pill -->
@@ -190,14 +180,14 @@
 
   <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
-    <!-- ==================== VIEW 0: LOGIN & KIOSK PIN KEYPAD ==================== -->
+    <!-- ==================== VIEW 0: FIREBASE AUTHENTICATION ==================== -->
     <section id="view-login" class="max-w-md mx-auto my-auto space-y-6 pt-4 pb-12">
       <div class="text-center space-y-2">
         <div class="inline-flex w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white items-center justify-center text-3xl shadow-lg shadow-emerald-200">
           🍪
         </div>
         <h1 class="text-2xl font-extrabold text-slate-900">Marhba bik f L-Karné !</h1>
-        <p class="text-xs text-slate-500">Kiosk libre-service SnackBox. Kteb l'identifiant dyalk w dakhel PIN.</p>
+        <p class="text-xs text-slate-500">Connectez-vous avec votre identifiant et votre nouveau mot de passe.</p>
       </div>
 
       <!-- Login Card -->
@@ -206,55 +196,25 @@
         <!-- Username -->
         <div>
           <label for="login-username" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Identifiant (Utilisateur)</label>
-          <input id="login-username" type="text" required minlength="3" maxlength="30" pattern="[A-Za-z0-9._\-]+" autocomplete="username" autocapitalize="none" spellcheck="false" oninput="clearPin()" placeholder="Saisissez votre identifiant" class="w-full bg-slate-50 border border-slate-200 font-semibold text-slate-800 text-sm rounded-xl py-2.5 px-3.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition">
+          <input id="login-username" type="text" required minlength="3" maxlength="30" pattern="[A-Za-z0-9._\-]+" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Saisissez votre identifiant" class="w-full bg-slate-50 border border-slate-200 font-semibold text-slate-800 text-sm rounded-xl py-2.5 px-3.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition">
         </div>
 
-        <!-- PIN Display Dots -->
-        <div class="space-y-2">
-          <div class="flex items-center justify-between">
-            <label class="text-xs font-bold text-slate-700 uppercase tracking-wider">Code PIN (4-6 chiffres)</label>
-            <span id="pin-clear-btn" onclick="clearPin()" class="text-xs text-slate-400 hover:text-rose-600 cursor-pointer font-medium">Effacer</span>
-          </div>
-
-          <div class="flex items-center justify-center gap-3 py-3 bg-slate-50 rounded-2xl border border-slate-200">
-            <div id="dot-1" class="pin-dot w-3.5 h-3.5 rounded-full bg-slate-300 transition-all"></div>
-            <div id="dot-2" class="pin-dot w-3.5 h-3.5 rounded-full bg-slate-300 transition-all"></div>
-            <div id="dot-3" class="pin-dot w-3.5 h-3.5 rounded-full bg-slate-300 transition-all"></div>
-            <div id="dot-4" class="pin-dot w-3.5 h-3.5 rounded-full bg-slate-300 transition-all"></div>
-            <div id="dot-5" class="pin-dot w-3.5 h-3.5 rounded-full bg-slate-300 transition-all"></div>
-            <div id="dot-6" class="pin-dot w-3.5 h-3.5 rounded-full bg-slate-300 transition-all"></div>
-          </div>
-        </div>
-
-        <!-- Interactive Numeric Keypad (Optimized for Office Tablets & Mobile) -->
-        <div class="grid grid-cols-3 gap-2.5 pt-1">
-          <button onclick="pressPin('1')" class="tap-effect py-3.5 text-xl font-bold bg-slate-100 hover:bg-slate-200/80 rounded-2xl text-slate-800 transition">1</button>
-          <button onclick="pressPin('2')" class="tap-effect py-3.5 text-xl font-bold bg-slate-100 hover:bg-slate-200/80 rounded-2xl text-slate-800 transition">2</button>
-          <button onclick="pressPin('3')" class="tap-effect py-3.5 text-xl font-bold bg-slate-100 hover:bg-slate-200/80 rounded-2xl text-slate-800 transition">3</button>
-          <button onclick="pressPin('4')" class="tap-effect py-3.5 text-xl font-bold bg-slate-100 hover:bg-slate-200/80 rounded-2xl text-slate-800 transition">4</button>
-          <button onclick="pressPin('5')" class="tap-effect py-3.5 text-xl font-bold bg-slate-100 hover:bg-slate-200/80 rounded-2xl text-slate-800 transition">5</button>
-          <button onclick="pressPin('6')" class="tap-effect py-3.5 text-xl font-bold bg-slate-100 hover:bg-slate-200/80 rounded-2xl text-slate-800 transition">6</button>
-          <button onclick="pressPin('7')" class="tap-effect py-3.5 text-xl font-bold bg-slate-100 hover:bg-slate-200/80 rounded-2xl text-slate-800 transition">7</button>
-          <button onclick="pressPin('8')" class="tap-effect py-3.5 text-xl font-bold bg-slate-100 hover:bg-slate-200/80 rounded-2xl text-slate-800 transition">8</button>
-          <button onclick="pressPin('9')" class="tap-effect py-3.5 text-xl font-bold bg-slate-100 hover:bg-slate-200/80 rounded-2xl text-slate-800 transition">9</button>
-          <button onclick="clearPin()" class="tap-effect py-3.5 text-xs font-bold text-slate-500 bg-slate-50 hover:bg-slate-100 rounded-2xl transition">C</button>
-          <button onclick="pressPin('0')" class="tap-effect py-3.5 text-xl font-bold bg-slate-100 hover:bg-slate-200/80 rounded-2xl text-slate-800 transition">0</button>
-          <button onclick="backspacePin()" class="tap-effect py-3.5 flex items-center justify-center text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-2xl transition">
-            <i data-lucide="delete" class="w-5 h-5"></i>
-          </button>
+        <div>
+          <label for="login-password" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Mot de passe</label>
+          <input id="login-password" type="password" required minlength="12" maxlength="128" autocomplete="current-password" class="w-full bg-slate-50 border border-slate-200 font-semibold text-slate-800 text-sm rounded-xl py-2.5 px-3.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition">
         </div>
 
         <!-- Submit Button -->
         <button id="login-submit-btn" onclick="submitLogin()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-sm transition shadow-md shadow-emerald-200 flex items-center justify-center gap-2 tap-effect">
-          <i data-lucide="unlock" class="w-4 h-4"></i>
+          <i data-lucide="lock-keyhole" class="w-4 h-4"></i>
           <span>Dkhol l'Karné</span>
         </button>
 
         <button type="button" onclick="openModal('signup-modal')" class="w-full py-2.5 border border-emerald-200 text-emerald-800 font-bold rounded-2xl text-xs hover:bg-emerald-50 transition">
-          Créer un compte avec un code d’invitation
+          Activer mon compte avec un code
         </button>
-        <button type="button" onclick="requestPinReset()" class="w-full py-1 text-xs text-slate-500 font-semibold hover:text-emerald-700 transition">
-          PIN oublié ? Demander à l’administrateur
+        <button type="button" onclick="requestPasswordHelp()" class="w-full py-1 text-xs text-slate-500 font-semibold hover:text-emerald-700 transition">
+          Mot de passe oublié ? Contacter l’administrateur
         </button>
 
       </div>
@@ -469,9 +429,9 @@
             <i data-lucide="activity" class="w-4 h-4"></i>
             <span>Activité récente</span>
           </button>
-          <button onclick="switchAdminTab('pin-resets')" id="admin-subtab-pin-resets" class="pb-3 px-4 font-semibold text-xs sm:text-sm text-slate-500 hover:text-slate-900 border-b-2 border-transparent transition flex items-center gap-1.5">
+          <button onclick="switchAdminTab('account-recovery')" id="admin-subtab-account-recovery" class="pb-3 px-4 font-semibold text-xs sm:text-sm text-slate-500 hover:text-slate-900 border-b-2 border-transparent transition flex items-center gap-1.5">
             <i data-lucide="key-round" class="w-4 h-4"></i>
-            <span>Récupération PIN</span>
+            <span>Récupération d’accès</span>
           </button>
         </div>
 
@@ -611,17 +571,17 @@
           <div id="admin-activity-empty-state" class="hidden text-center py-8 text-slate-400 text-xs">Aucune opération pour ces filtres.</div>
           </div>
 
-        <div id="admin-section-pin-resets" class="hidden bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-soft space-y-4">
+        <div id="admin-section-account-recovery" class="hidden bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-soft space-y-4">
           <div class="flex items-center justify-between gap-3">
             <div>
-              <h3 class="font-bold text-slate-800 text-sm">Demandes de récupération du PIN</h3>
-              <p class="text-xs text-slate-500 mt-1">Vérifiez l’identité du collègue en personne avant de générer un PIN temporaire.</p>
+              <h3 class="font-bold text-slate-800 text-sm">Récupération de compte</h3>
+              <p class="text-xs text-slate-500 mt-1">Vérifiez l’identité du collègue en personne. Supprimez d’abord son ancien compte dans Firebase Authentication, puis créez un code de réactivation.</p>
             </div>
-            <button type="button" onclick="refreshAdminActivity()" aria-label="Actualiser les demandes PIN" title="Actualiser les demandes PIN" class="group inline-flex items-center justify-center w-9 h-9 shrink-0 rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 hover:shadow transition">
+            <button type="button" onclick="refreshAdminActivity()" aria-label="Actualiser les comptes à réactiver" title="Actualiser les comptes à réactiver" class="group inline-flex items-center justify-center w-9 h-9 shrink-0 rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 hover:shadow transition">
               <i data-lucide="refresh-cw" class="w-4 h-4 transition-transform duration-300 group-hover:rotate-180"></i>
             </button>
           </div>
-          <div id="admin-pin-reset-requests" class="space-y-2"></div>
+          <div id="admin-recovery-accounts" class="space-y-2"></div>
         </div>
       </div>
 
@@ -806,44 +766,24 @@
         </button>
       </div>
 
-      <p class="text-xs text-slate-500">Demandez votre code privé à l’administrateur. Il reliera votre compte à votre solde existant.</p>
+      <p class="text-xs text-slate-500">Demandez votre code à l’administrateur. Choisissez un mot de passe que vous seul connaissez; il sera associé à votre profil et à votre historique existants.</p>
       <form onsubmit="submitRegistration(event)" class="space-y-3 text-xs">
         <div>
           <label for="signup-invite-code" class="block font-semibold text-slate-700 mb-1">Code d’invitation</label>
-          <input id="signup-invite-code" type="text" required minlength="16" maxlength="16" pattern="[A-Fa-f0-9]{16}" autocomplete="one-time-code" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl font-mono uppercase focus:ring-2 focus:ring-emerald-500">
+          <input id="signup-invite-code" type="text" required minlength="32" maxlength="32" pattern="[A-Fa-f0-9]{32}" autocomplete="one-time-code" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl font-mono uppercase focus:ring-2 focus:ring-emerald-500">
         </div>
         <div>
           <label for="signup-username" class="block font-semibold text-slate-700 mb-1">Identifiant (3 à 30 caractères)</label>
           <input id="signup-username" type="text" required minlength="3" maxlength="30" pattern="[A-Za-z0-9._\-]+" autocomplete="username" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500">
         </div>
         <div>
-          <label for="signup-pin" class="block font-semibold text-slate-700 mb-1">PIN (4 à 6 chiffres)</label>
-          <input id="signup-pin" type="password" required minlength="4" maxlength="6" pattern="[0-9]{4,6}" inputmode="numeric" autocomplete="new-password" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl font-mono focus:ring-2 focus:ring-emerald-500">
+          <label for="signup-password" class="block font-semibold text-slate-700 mb-1">Nouveau mot de passe (12 caractères minimum)</label>
+          <input id="signup-password" type="password" required minlength="12" maxlength="128" autocomplete="new-password" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500">
         </div>
         <div class="flex gap-2 pt-1">
           <button type="button" onclick="closeModal('signup-modal')" class="flex-1 py-2.5 border border-slate-200 text-slate-600 font-semibold rounded-xl">Annuler</button>
-          <button type="submit" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl">Créer le compte</button>
+          <button type="submit" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl">Activer mon compte</button>
         </div>
-      </form>
-    </div>
-  </div>
-
-  <div id="temporary-pin-change-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4 hidden">
-    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4">
-      <div>
-        <h3 class="font-bold text-slate-900 text-base">Choisissez un nouveau PIN</h3>
-        <p class="text-xs text-slate-600 mt-2">Votre administrateur vous a remis un PIN temporaire. Pour protéger votre compte, créez un nouveau PIN avant de continuer.</p>
-      </div>
-      <form onsubmit="submitTemporaryPinChange(event)" class="space-y-3">
-        <div>
-          <label for="temporary-pin-new" class="block text-xs font-semibold text-slate-700 mb-1">Nouveau PIN (4 à 6 chiffres)</label>
-          <input id="temporary-pin-new" type="password" required minlength="4" maxlength="6" pattern="[0-9]{4,6}" inputmode="numeric" autocomplete="new-password" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl font-mono focus:ring-2 focus:ring-emerald-500">
-        </div>
-        <div>
-          <label for="temporary-pin-confirm" class="block text-xs font-semibold text-slate-700 mb-1">Confirmer le nouveau PIN</label>
-          <input id="temporary-pin-confirm" type="password" required minlength="4" maxlength="6" pattern="[0-9]{4,6}" inputmode="numeric" autocomplete="new-password" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl font-mono focus:ring-2 focus:ring-emerald-500">
-        </div>
-        <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs">Enregistrer mon nouveau PIN</button>
       </form>
     </div>
   </div>
@@ -974,12 +914,7 @@
           <input type="text" id="new-user-username" required minlength="3" maxlength="30" pattern="[A-Za-z0-9._-]+" placeholder="youssef" class="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500">
         </div>
 
-        <div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">PIN (4 à 6 chiffres) *</label>
-            <input type="password" id="new-user-pin" required minlength="4" maxlength="6" pattern="[0-9]{4,6}" inputmode="numeric" autocomplete="new-password" class="w-full px-3 py-2 border border-slate-200 rounded-xl font-mono text-center focus:ring-2 focus:ring-emerald-500">
-          </div>
-        </div>
+        <p class="text-[11px] text-slate-500">Un code de configuration à usage unique sera créé. Remettez-le au collègue en personne; il choisira son mot de passe.</p>
 
         <div class="flex gap-2.5 pt-3">
           <button type="button" onclick="closeModal('add-user-modal')" class="flex-1 py-2.5 border border-slate-200 text-slate-600 font-semibold rounded-xl">
@@ -990,45 +925,6 @@
           </button>
         </div>
       </form>
-    </div>
-  </div>
-
-  <!-- Settings Modal (Apps Script Web App Connection) -->
-  <div id="settings-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
-    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <i data-lucide="link-2" class="w-5 h-5 text-emerald-600"></i>
-          <h3 class="font-bold text-slate-900 text-base">Connexion Google Apps Script</h3>
-        </div>
-        <button onclick="closeModal('settings-modal')" class="p-1 text-slate-400 hover:text-slate-600">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-
-      <p class="text-xs text-slate-500 leading-relaxed">
-        Collez l'URL de votre application Web Google Apps Script (<code class="text-slate-700 bg-slate-100 px-1 py-0.5 rounded">.../exec</code>) pour synchroniser en temps réel avec le Google Sheet sur Google Drive.
-      </p>
-
-      <div class="space-y-2 text-xs">
-        <label class="block font-semibold text-slate-700">URL Web App (doPost/doGet)</label>
-        <input type="url" id="settings-api-url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-emerald-500">
-      </div>
-
-      <div class="flex gap-2">
-        <button onclick="testApiConnection()" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5">
-          <i data-lucide="radio" class="w-4 h-4"></i>
-          <span>Tester la connexion</span>
-        </button>
-        <button onclick="saveApiUrl()" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition shadow-md shadow-emerald-200">
-          Enregistrer
-        </button>
-      </div>
-
-      <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-        <span>Backend partagé requis pour utiliser les données.</span>
-        <button onclick="clearBackendUrl()" class="text-rose-600 hover:underline font-semibold">Effacer l’URL</button>
-      </div>
     </div>
   </div>
 
@@ -1046,22 +942,17 @@
   <!-- ==================== FRONTEND APPLICATION LOGIC ==================== -->
   <script>
     // Storage Keys
-    const KEY_API_URL = 'lkarne_gas_url';
-    const KEY_TOKEN = 'lkarne_session_token';
-    const KEY_USER = 'lkarne_session_user';
     const KEY_SOUND = 'lkarne_sound_enabled';
 
     // Application State
-    let apiUrl = localStorage.getItem(KEY_API_URL) || '';
-    let sessionToken = sessionStorage.getItem(KEY_TOKEN) || '';
     let currentUser = null;
-    let firebaseCustomTokenForShell = '';
     let realtimeConnected = false;
     let products = [];
     let personalTransactions = [];
     let adminData = null;
     let currentCategory = 'ALL';
-    let enteredPin = '';
+    let appRequests = new Map();
+    let initializedUserId = '';
     let pendingPurchaseProduct = null;
     let pendingPurchaseAttempt = null;
     let inventoryPurchaseProductId = null;
@@ -1073,31 +964,38 @@
     let adminRefreshInProgress = false;
     const ADMIN_REFRESH_INTERVAL_MS = 30000;
 
-    function notifyPwaShell(firebaseCustomToken) {
-      if (window.parent === window) return;
-      window.parent.postMessage({
-        type: 'lkarne:session',
-        token: sessionToken,
-        user: currentUser,
-        apiUrl: apiUrl,
-        firebaseCustomToken: firebaseCustomToken || ''
-      }, window.location.origin);
-    }
-
     window.addEventListener('message', event => {
       if (event.origin !== window.location.origin || event.source !== window.parent) return;
       const message = event.data || {};
-      if (message.type === 'lkarne:realtime-status') {
+      if (message.type === 'lkarne:api-result') {
+        const pending = appRequests.get(message.id);
+        if (!pending) return;
+        clearTimeout(pending.timeout);
+        appRequests.delete(message.id);
+        pending.resolve(message.result);
+      } else if (message.type === 'lkarne:auth-state') {
+        realtimeConnected = Boolean(message.user);
+        updateBackendStatusBadge();
+        if (message.user) {
+          currentUser = message.user;
+          if (initializedUserId !== currentUser.id) initAuthenticatedApp();
+        } else {
+          if (currentUser) {
+            currentUser = null;
+            initializedUserId = '';
+            sessionUserValidated = false;
+            document.getElementById('header-user-pill').classList.add('hidden');
+            document.getElementById('app-nav').classList.add('hidden');
+            document.getElementById('nav-admin').classList.add('hidden');
+            switchView('login');
+          }
+          if (message.error) showToast(message.error, 'error');
+        }
+      } else if (message.type === 'lkarne:realtime-status') {
         realtimeConnected = message.connected === true;
-        const pillText = document.getElementById('backend-status-text');
-        if (pillText && apiUrl) {
-          pillText.textContent = realtimeConnected ? 'Firebase en direct' : 'Apps Script connecté';
-        }
-        if (realtimeConnected) {
-          stopAdminAutoRefresh();
-        } else if (currentUser && currentUser.role === 'admin') {
-          startAdminAutoRefresh();
-        }
+        updateBackendStatusBadge();
+        if (realtimeConnected) stopAdminAutoRefresh();
+        else if (currentUser?.role === 'admin') startAdminAutoRefresh();
       } else if (message.type === 'lkarne:firestore-update') {
         refreshVisibleDataFromFirestore();
       }
@@ -1128,36 +1026,17 @@
 
     // Initialize Application
     document.addEventListener('DOMContentLoaded', () => {
-      // Sound state
       soundEnabled = localStorage.getItem(KEY_SOUND) !== 'false';
       updateSoundIcon();
-
-      // Set input in modal
-      if (document.getElementById('settings-api-url')) {
-        document.getElementById('settings-api-url').value = apiUrl;
-      }
-
+      localStorage.removeItem('lkarne_gas_url');
+      sessionStorage.removeItem('lkarne_session_token');
+      sessionStorage.removeItem('lkarne_session_user');
       updateBackendStatusBadge();
-
-      // Check existing session
-      const savedUserStr = sessionStorage.getItem(KEY_USER);
-      if (sessionToken && savedUserStr) {
-        if (sessionToken.startsWith('mock-token-')) {
-          sessionToken = '';
-          sessionStorage.removeItem(KEY_TOKEN);
-          sessionStorage.removeItem(KEY_USER);
-        } else {
-        try {
-          currentUser = JSON.parse(savedUserStr);
-          initAuthenticatedApp();
-          return;
-        } catch (e) {}
-        }
-      }
-
-      // If not authenticated, load login screen
       switchView('login');
       lucide.createIcons();
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: 'lkarne:ready' }, window.location.origin);
+      }
     });
 
     function toggleSound() {
@@ -1180,191 +1059,76 @@
       const text = document.getElementById('backend-status-text');
       if (!pill || !text) return;
 
-      if (apiUrl) {
-        pill.className = 'cursor-pointer flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition';
-        pill.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span><span>${realtimeConnected ? 'Firebase en direct' : 'Apps Script connecté'}</span>`;
-      } else {
-        pill.className = 'cursor-pointer flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition';
-        pill.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-500"></span><span>Backend non configuré</span>';
-      }
+      pill.className = `flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+        realtimeConnected ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+          'bg-amber-50 text-amber-800 border-amber-200'
+      }`;
+      text.textContent = realtimeConnected ? 'Firebase connecté' : 'Firebase déconnecté';
     }
 
-    // ==================== API / GAS ENGINE CALLER ====================
+    // Relay requests to the React shell, which owns the Firebase SDK.
     async function apiCall(action, payload = {}, showLoading = true) {
       if (showLoading) showSpinner(true);
-
       try {
-        if (!apiUrl) {
-          return { success: false, error: 'Configurez l’URL Google Apps Script dans les paramètres pour accéder aux données partagées.' };
-        }
-
-        // REAL BACKEND HANDLER (CORS POST with text/plain to avoid preflight)
-        const reqData = Object.assign({ action: action, token: sessionToken }, payload);
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            // text/plain avoids CORS preflight OPTIONS request in Google Apps Script!
-            'Content-Type': 'text/plain;charset=utf-8'
-          },
-          body: JSON.stringify(reqData)
+        const id = window.crypto?.randomUUID
+          ? window.crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        return await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            appRequests.delete(id);
+            reject(new Error('Firebase n’a pas répondu. Vérifiez la connexion puis réessayez.'));
+          }, 30000);
+          appRequests.set(id, { resolve, timeout });
+          window.parent.postMessage(
+            { type: 'lkarne:api-call', id, action, payload },
+            window.location.origin
+          );
         });
-
-        const text = await response.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (parseErr) {
-          console.error("Réponse reçue (non-JSON):", text.slice(0, 300));
-          if (text.includes('accounts.google.com') || text.includes('signin') || text.includes('ServiceLogin') || text.includes('<!DOCTYPE') || text.includes('<!doctype')) {
-            const msg = 'L\'application Web Google exige une connexion Google (Redirection de sécurité).\n\nDans Google Apps Script :\n1. Allez dans Déployer > Nouveau déploiement.\n2. Choisissez "Tout le monde" (Anyone) pour "Qui a accès".\n\nNote : Si votre compte Google Workspace bloque l\'option "Tout le monde", déployez le script sur un compte Gmail standard (@gmail.com).';
-            showToast('Accès restreint par Google (Connexion exigée)', 'error');
-            alert(msg);
-            return { success: false, error: msg, outcomeUnknown: true };
-          }
-          return {
-            success: false,
-            error: 'Réponse serveur non-JSON : ' + text.slice(0, 100),
-            outcomeUnknown: true
-          };
-        }
-
-        if (!data.success && data.error && (data.error.includes('Unauthorized') || data.error.includes('Session invalid'))) {
-          showToast('Session expirée ou non autorisée. Veuillez vous reconnecter.', 'error');
-          logout();
-        }
-        return data;
       } catch (error) {
-        console.error('API Error:', error);
-        return {
-          success: false,
-          error: 'Impossible de confirmer le résultat de la demande: ' + error.message,
-          outcomeUnknown: true
-        };
+        console.error('Firebase request failed:', error);
+        return { success: false, error: error.message };
       } finally {
         if (showLoading) showSpinner(false);
       }
     }
 
-    // ==================== AUTH & LOGIN FLOW ====================
-    function pressPin(digit) {
-      if (enteredPin.length >= 6) return;
-      enteredPin += digit;
-      updatePinDots();
-      playSound('success');
-
-    }
-
-    function clearPin() {
-      enteredPin = '';
-      updatePinDots();
-    }
-
-    function backspacePin() {
-      if (enteredPin.length > 0) {
-        enteredPin = enteredPin.slice(0, -1);
-        updatePinDots();
-      }
-    }
-
-    function updatePinDots() {
-      for (let i = 1; i <= 6; i++) {
-        const dot = document.getElementById(`dot-${i}`);
-        if (dot) {
-          if (enteredPin.length >= i) {
-            dot.classList.add('filled');
-          } else {
-            dot.classList.remove('filled');
-          }
-        }
-      }
-    }
-
     async function submitLogin() {
-      const usernameInput = document.getElementById('login-username');
-      const username = usernameInput ? usernameInput.value.trim().toLowerCase() : '';
-
+      const username = document.getElementById('login-username').value.trim().toLowerCase();
+      const password = document.getElementById('login-password').value;
       if (!username) {
         showToast('Veuillez saisir votre identifiant.', 'error');
         return;
       }
-      if (!enteredPin) {
-        showToast('Veuillez saisir votre code PIN.', 'error');
+      if (!password) {
+        showToast('Veuillez saisir votre mot de passe.', 'error');
         return;
       }
-
-      const res = await apiCall('auth/login', { username: username, pin: enteredPin });
+      const res = await apiCall('auth/login', { username, password });
       if (!res.success) {
         playSound('error');
         showToast(res.error || 'Erreur de connexion', 'error');
-        clearPin();
+        document.getElementById('login-password').value = '';
         return;
       }
-
-      // Login success
       playSound('success');
-      sessionToken = res.token;
       currentUser = res.user;
-      firebaseCustomTokenForShell = res.firebaseCustomToken || '';
-      sessionStorage.setItem(KEY_TOKEN, sessionToken);
-      sessionStorage.setItem(KEY_USER, JSON.stringify(currentUser));
-
-      clearPin();
       showToast(`Marhba ${currentUser.name} !`);
-      initAuthenticatedApp();
-    }
-
-    async function requestPinReset() {
-      const username = document.getElementById('login-username').value.trim().toLowerCase();
-      if (!username) {
-        showToast('Saisissez votre identifiant avant de demander un nouveau PIN.', 'error');
-        return;
-      }
-      const res = await apiCall('auth/request_pin_reset', { username: username });
-      if (!res.success) {
-        showToast(res.error || 'Impossible d’envoyer la demande.', 'error');
-        return;
-      }
-      showToast(res.message || 'Si le compte existe, la demande sera transmise à l’administrateur.');
-    }
-
-    async function submitTemporaryPinChange(event) {
-      event.preventDefault();
-      const newPin = document.getElementById('temporary-pin-new').value.trim();
-      const confirmation = document.getElementById('temporary-pin-confirm').value.trim();
-      if (newPin !== confirmation) {
-        showToast('Les deux PIN ne correspondent pas.', 'error');
-        return;
-      }
-      const res = await apiCall('colleague/change_temporary_pin', { newPin: newPin });
-      if (!res.success) {
-        showToast(res.error || 'Impossible de modifier le PIN.', 'error');
-        return;
-      }
-      if (!res.token) {
-        showToast('Le PIN a peut-être été modifié, mais la session doit être vérifiée. Reconnectez-vous.', 'error');
-        return;
-      }
-      sessionToken = res.token;
-      currentUser.pin_reset_required = false;
-      firebaseCustomTokenForShell = res.firebaseCustomToken || '';
-      sessionStorage.setItem(KEY_TOKEN, sessionToken);
-      sessionStorage.setItem(KEY_USER, JSON.stringify(currentUser));
-      document.getElementById('temporary-pin-new').value = '';
-      document.getElementById('temporary-pin-confirm').value = '';
-      closeModal('temporary-pin-change-modal');
-      showToast(res.message || 'PIN modifié.');
       await initAuthenticatedApp();
+    }
+
+    function requestPasswordHelp() {
+      showToast('Contactez l’administrateur en personne pour réinitialiser votre accès.', 'error');
     }
 
     async function submitRegistration(event) {
       event.preventDefault();
       const inviteCode = document.getElementById('signup-invite-code').value.trim();
       const username = document.getElementById('signup-username').value.trim().toLowerCase();
-      const pin = document.getElementById('signup-pin').value.trim();
+      const password = document.getElementById('signup-password').value;
       const res = await apiCall('auth/register', {
         inviteCode: inviteCode,
         username: username,
-        pin: pin
+        password
       });
 
       if (!res.success) {
@@ -1372,30 +1136,21 @@
         return;
       }
 
-      sessionToken = res.token;
       currentUser = res.user;
-      firebaseCustomTokenForShell = res.firebaseCustomToken || '';
-      sessionStorage.setItem(KEY_TOKEN, sessionToken);
-      sessionStorage.setItem(KEY_USER, JSON.stringify(currentUser));
       closeModal('signup-modal');
       document.getElementById('signup-invite-code').value = '';
       document.getElementById('signup-username').value = '';
-      document.getElementById('signup-pin').value = '';
+      document.getElementById('signup-password').value = '';
       showToast(`Compte créé. Marhba ${currentUser.name} !`);
       await initAuthenticatedApp();
     }
 
     function logout() {
-      if (window.parent !== window) {
-        window.parent.postMessage({ type: 'lkarne:logout' }, window.location.origin);
-      }
-      sessionToken = '';
+      apiCall('auth/logout', {}, false);
       currentUser = null;
-      firebaseCustomTokenForShell = '';
+      initializedUserId = '';
       realtimeConnected = false;
       sessionUserValidated = false;
-      sessionStorage.removeItem(KEY_TOKEN);
-      sessionStorage.removeItem(KEY_USER);
 
       document.getElementById('header-user-pill').classList.add('hidden');
       document.getElementById('app-nav').classList.add('hidden');
@@ -1407,25 +1162,17 @@
 
     // ==================== APP INITIALIZATION ====================
     async function initAuthenticatedApp() {
-      if (!currentUser) return;
-
+      if (!currentUser || initializedUserId === currentUser.id) return;
+      initializedUserId = currentUser.id;
       sessionUserValidated = false;
       await loadDashboardData();
       if (!sessionUserValidated || !currentUser) {
         currentUser = null;
-        sessionToken = '';
-        sessionStorage.removeItem(KEY_TOKEN);
-        sessionStorage.removeItem(KEY_USER);
+        initializedUserId = '';
         document.getElementById('header-user-pill').classList.add('hidden');
         document.getElementById('app-nav').classList.add('hidden');
         document.getElementById('nav-admin').classList.add('hidden');
         switchView('login');
-        return;
-      }
-      if (currentUser.pin_reset_required) {
-        document.getElementById('app-nav').classList.add('hidden');
-        document.getElementById('header-user-pill').classList.add('hidden');
-        openModal('temporary-pin-change-modal');
         return;
       }
 
@@ -1448,8 +1195,6 @@
       }
 
       switchView('store');
-      notifyPwaShell(firebaseCustomTokenForShell);
-      firebaseCustomTokenForShell = '';
     }
 
     async function loadDashboardData(showLoading = true) {
@@ -1833,7 +1578,7 @@
 
       refreshAdminFilterOptions();
       renderAdminUsersTable();
-      renderAdminPinResetRequests();
+      renderAdminRecoveryAccounts();
       renderAdminInventoryTable();
       renderAdminActivityTable();
       return true;
@@ -1880,35 +1625,37 @@
       adminRefreshTimer = null;
     }
 
-    function renderAdminPinResetRequests() {
-      const container = document.getElementById('admin-pin-reset-requests');
+    function renderAdminRecoveryAccounts() {
+      const container = document.getElementById('admin-recovery-accounts');
       if (!container) return;
-      const requests = adminData.pinResetRequests || [];
+      const requests = (adminData.users || []).filter(user =>
+        String(user.role || '').toLowerCase() !== 'admin' && user.username
+      );
       if (!requests.length) {
-        container.innerHTML = '<p class="text-[11px] text-slate-400">Aucune demande en attente.</p>';
+        container.innerHTML = '<p class="text-[11px] text-slate-400">Aucun compte à réactiver.</p>';
         return;
       }
       container.innerHTML = requests.map(request => `
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl bg-amber-50 border border-amber-100 p-3">
           <div class="min-w-0">
-            <div class="text-xs font-bold text-slate-800">${escapeHtml(request.name)} <span class="font-normal text-slate-500">(${escapeHtml(request.username || 'compte non activé')})</span></div>
-            <div class="text-[10px] text-amber-800 mt-0.5">${request.resetRequired ? 'PIN temporaire déjà créé — le collègue doit encore le changer.' : 'Demande de récupération en attente.'}</div>
+            <div class="text-xs font-bold text-slate-800">${escapeHtml(request.name)} <span class="font-normal text-slate-500">(@${escapeHtml(request.username)})</span></div>
+            <div class="text-[10px] text-amber-800 mt-0.5">Après vérification d’identité et suppression de l’ancien compte Firebase.</div>
           </div>
-          <button type="button" data-user-id="${escapeHtml(request.id)}" onclick="adminResetUserPin(this.dataset.userId)" class="shrink-0 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[11px]">
-            ${request.resetRequired ? 'Générer un autre PIN' : 'Générer un PIN temporaire'}
+          <button type="button" data-user-id="${escapeHtml(request.id)}" onclick="adminIssueRecoveryCode(this.dataset.userId)" class="shrink-0 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[11px]">
+            Créer code
           </button>
         </div>
       `).join('');
     }
 
-    async function adminResetUserPin(userId) {
-      if (!window.confirm('Confirmez-vous avoir vérifié en personne l’identité de ce collègue ? Le PIN temporaire s’affichera une seule fois.')) return;
-      const res = await apiCall('admin/reset_user_pin', { userId: userId });
+    async function adminIssueRecoveryCode(userId) {
+      if (!window.confirm('Avez-vous vérifié son identité en personne et supprimé son ancien compte utilisateur dans Firebase Authentication ? Sans cette suppression, il ne pourra pas créer son nouveau mot de passe.')) return;
+      const res = await apiCall('admin/issue_recovery_code', { userId: userId });
       if (!res.success) {
-        showToast(res.error || 'Impossible de réinitialiser le PIN.', 'error');
+        showToast(res.error || 'Impossible de créer le code.', 'error');
         return;
       }
-      window.alert(`PIN temporaire pour ${res.name} : ${res.temporaryPin}\n\nRemettez-le directement au collègue. Il devra choisir un nouveau PIN avant d’utiliser l’application.`);
+      window.alert(`Code de réactivation pour ${res.name} : ${res.inviteCode}\n\nRemettez-le directement au collègue. Il pourra choisir un nouveau mot de passe.`);
       await loadAdminData();
     }
 
@@ -1932,23 +1679,23 @@
         if (/^[\s]*[=+\-@]/.test(text)) text = "'" + text;
         return '"' + text.replace(/"/g, '""') + '"';
       };
-      const csv = [['Nom du client', 'Code d’invitation']]
-        .concat(res.invites.map(invite => [invite.name, invite.inviteCode]))
+      const csv = [['Nom du client', 'Identifiant', 'Code de configuration']]
+        .concat(res.invites.map(invite => [invite.name, invite.username, invite.inviteCode]))
         .map(row => row.map(csvCell).join(','))
         .join('\r\n');
       const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }));
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'codes-invitation-clients.csv';
+      link.download = 'codes-configuration-comptes.csv';
       document.body.appendChild(link);
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      showToast(`${res.invites.length} codes exportés. Remettez chaque code uniquement à son client.`);
+      showToast(`${res.invites.length} codes exportés. Remettez chaque code uniquement au collègue concerné.`);
     }
 
     function switchAdminTab(tab) {
-      const tabs = ['users', 'inventory', 'activity', 'pin-resets'];
+      const tabs = ['users', 'inventory', 'activity', 'account-recovery'];
       const activeTab = tabs.includes(tab) ? tab : 'users';
       const activeClass = 'pb-3 px-4 font-bold text-xs sm:text-sm text-emerald-700 border-b-2 border-emerald-600 transition flex items-center gap-1.5';
       const inactiveClass = 'pb-3 px-4 font-semibold text-xs sm:text-sm text-slate-500 hover:text-slate-900 border-b-2 border-transparent transition flex items-center gap-1.5';
@@ -2511,12 +2258,10 @@
       event.preventDefault();
       const name = document.getElementById('new-user-name').value.trim();
       const username = document.getElementById('new-user-username').value.trim().toLowerCase();
-      const pin = document.getElementById('new-user-pin').value.trim();
 
       const res = await apiCall('admin/add_user', {
         name: name,
-        username: username,
-        pin: pin
+        username: username
       });
 
       if (!res.success) {
@@ -2526,7 +2271,7 @@
 
       closeModal('add-user-modal');
       playSound('success');
-      showToast('Colleague créé avec succès !');
+      window.alert(`Compte créé pour ${name}.\n\nCode de configuration : ${res.inviteCode}\n\nRemettez-le directement au collègue; il choisira son mot de passe dans l’application.`);
       await loadAdminData();
     }
 
@@ -2645,117 +2390,6 @@
       }
     }
 
-    function saveApiUrl() {
-      const url = document.getElementById('settings-api-url')?.value.trim() || '';
-      const isNew = (apiUrl !== url);
-      apiUrl = url;
-      localStorage.setItem(KEY_API_URL, apiUrl);
-      updateBackendStatusBadge();
-      closeModal('settings-modal');
-      showToast('Configuration enregistrée !');
-      if (isNew) {
-        logout();
-      } else if (currentUser) {
-        loadDashboardData();
-      }
-    }
-
-    function jsonp(url) {
-      return new Promise((resolve, reject) => {
-        const cbName = 'lkarne_cb_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
-        const script = document.createElement('script');
-        const sep = url.includes('?') ? '&' : '?';
-        const timeout = setTimeout(() => {
-          delete window[cbName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-          reject(new Error('Délai d\'attente dépassé (vérifiez les autorisations de déploiement)'));
-        }, 10000);
-
-        window[cbName] = function(data) {
-          clearTimeout(timeout);
-          delete window[cbName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-          resolve(data);
-        };
-
-        script.onerror = function() {
-          clearTimeout(timeout);
-          delete window[cbName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-          reject(new Error('Impossible de contacter Apps Script. Assurez-vous que "Qui a accès" est réglé sur "Tout le monde" (Anyone).'));
-        };
-
-        script.src = url + sep + 'callback=' + cbName;
-        document.body.appendChild(script);
-      });
-    }
-
-    async function testApiConnection() {
-      const url = document.getElementById('settings-api-url')?.value.trim();
-      if (!url) {
-        showToast('Veuillez d\'abord saisir une URL valide.', 'error');
-        return;
-      }
-
-      showSpinner(true, 'Test du Web App Google Apps Script...');
-      const isFileProtocol = window.location.protocol === 'file:';
-
-      try {
-        const pingUrl = url + (url.includes('?') ? '&' : '?') + 'action=ping';
-        let data = null;
-
-        if (isFileProtocol) {
-          // In file:/// protocol, browsers block fetch redirects, try JSONP
-          data = await jsonp(pingUrl);
-        } else {
-          try {
-            const res = await fetch(pingUrl, { method: 'GET' });
-            data = await res.json();
-          } catch (fetchErr) {
-            // Fallback to JSONP if fetch had a CORS redirect issue
-            data = await jsonp(pingUrl);
-          }
-        }
-
-        if (data && data.success) {
-          playSound('success');
-          showToast('Connexion réussie avec Google Sheets ! 🟢');
-          if (isFileProtocol) {
-            alert('Connexion réussie ! Note : Pour une expérience optimale en production, servez cette page via un serveur HTTP local (ex: python -m http.server 8000) ou publiez sur GitHub Pages.');
-          }
-        } else {
-          playSound('error');
-          showToast('Réponse inattendue: ' + JSON.stringify(data), 'error');
-        }
-      } catch (e) {
-        playSound('error');
-        console.error('Test connection error:', e);
-        showToast('Échec : ' + e.message, 'error');
-        alert('ÉCHEC DE CONNEXION :\n\n1. Dans Google Apps Script : Vérifiez que "Qui a accès" (Who has access) est bien sur "Tout le monde" (Anyone).\n2. Si vous ouvrez le fichier en double-cliquant (file:///), lancez un serveur local ou publiez sur GitHub Pages.');
-      } finally {
-        showSpinner(false);
-      }
-    }
-
-    function clearBackendUrl() {
-      apiUrl = '';
-      localStorage.removeItem(KEY_API_URL);
-      if (document.getElementById('settings-api-url')) {
-        document.getElementById('settings-api-url').value = '';
-      }
-      updateBackendStatusBadge();
-      closeModal('settings-modal');
-      sessionToken = '';
-      currentUser = null;
-      sessionUserValidated = false;
-      sessionStorage.removeItem(KEY_TOKEN);
-      sessionStorage.removeItem(KEY_USER);
-      document.getElementById('header-user-pill').classList.add('hidden');
-      document.getElementById('app-nav').classList.add('hidden');
-      document.getElementById('nav-admin').classList.add('hidden');
-      switchView('login');
-      showToast('URL du backend effacée.');
-    }
   </script>
 </body>
 </html>

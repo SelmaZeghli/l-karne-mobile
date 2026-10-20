@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-
-const firebaseRealtimeConfigured = [
-  import.meta.env.VITE_FIREBASE_API_KEY,
-  import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  import.meta.env.VITE_FIREBASE_APP_ID
-].every(Boolean);
+import {
+  disconnectFirebaseRealtime,
+  firebaseConfigured,
+  requestFirebaseAction,
+  watchFirebaseSession
+} from './firebaseBackend.js';
 
 const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -17,7 +16,7 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState('idle');
   const frameRef = useRef(null);
   const refreshTimer = useRef(null);
-  const firebaseRealtimeRef = useRef(null);
+  const stopFirebaseSessionRef = useRef(null);
 
   useEffect(() => {
     setIsStandalone(
@@ -33,75 +32,72 @@ export default function App() {
     const onFrameMessage = (event) => {
       if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow) return;
       const message = event.data || {};
-      if (message.type === 'lkarne:session') {
-        activateRealtime(message).catch((error) => {
-          console.error('Firebase real-time connection failed:', error);
-          setSyncStatus('error');
+      if (message.type === 'lkarne:api-call') {
+        requestFirebaseAction(message.action, message.payload).then((result) => {
+          frameRef.current?.contentWindow?.postMessage(
+            { type: 'lkarne:api-result', id: message.id, result },
+            window.location.origin
+          );
         });
-      } else if (message.type === 'lkarne:logout') {
-        firebaseRealtimeRef.current?.disconnectFirebaseRealtime().catch((error) => {
-          console.error('Firebase sign-out failed:', error);
-          setSyncStatus('error');
+      } else if (message.type === 'lkarne:ready') {
+        requestFirebaseAction('auth/session').then((result) => {
+          frameRef.current?.contentWindow?.postMessage(
+            {
+              type: 'lkarne:auth-state',
+              user: result.success ? result.user : null,
+              error: result.success ? '' : result.error
+            },
+            window.location.origin
+          );
         });
-        setSyncStatus('idle');
       }
     };
     window.addEventListener('message', onFrameMessage);
+    if (firebaseConfigured) {
+      watchFirebaseSession(
+        (user, error) => {
+          setSyncStatus(user ? 'connected' : 'idle');
+          frameRef.current?.contentWindow?.postMessage(
+            { type: 'lkarne:auth-state', user, error: error?.message || '' },
+            window.location.origin
+          );
+        },
+        (kind) => {
+          window.clearTimeout(refreshTimer.current);
+          refreshTimer.current = window.setTimeout(() => {
+            frameRef.current?.contentWindow?.postMessage(
+              { type: 'lkarne:firestore-update', kind },
+              window.location.origin
+            );
+          }, 180);
+        },
+        (error) => {
+          console.error('Firestore listener error:', error);
+          setSyncStatus('error');
+          frameRef.current?.contentWindow?.postMessage(
+            { type: 'lkarne:realtime-status', connected: false, error: error.message },
+            window.location.origin
+          );
+        }
+      ).then((stop) => {
+        stopFirebaseSessionRef.current = stop;
+      }).catch((error) => {
+        console.error('Firebase initialization failed:', error);
+        setSyncStatus('error');
+      });
+    } else {
+      setSyncStatus('error');
+    }
     return () => {
       window.removeEventListener('beforeinstallprompt', onInstallPrompt);
       window.removeEventListener('message', onFrameMessage);
       window.clearTimeout(refreshTimer.current);
-      firebaseRealtimeRef.current?.disconnectFirebaseRealtime().catch((error) => {
+      stopFirebaseSessionRef.current?.();
+      disconnectFirebaseRealtime().catch((error) => {
         console.error('Firebase sign-out failed:', error);
       });
     };
   }, []);
-
-  async function activateRealtime(message) {
-    if (!firebaseRealtimeConfigured) return;
-    const firebaseRealtime = await import('./firebaseRealtime.js');
-    firebaseRealtimeRef.current = firebaseRealtime;
-    setSyncStatus('connecting');
-    let customToken = message.firebaseCustomToken;
-    if (!customToken && message.apiUrl && message.token) {
-      const response = await fetch(message.apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'auth/firebase_token', token: message.token })
-      });
-      const result = await response.json();
-      if (!result.success || !result.firebaseCustomToken) {
-        throw new Error(result.error || 'The backend did not issue a Firebase login token.');
-      }
-      customToken = result.firebaseCustomToken;
-    }
-    if (!customToken) throw new Error('The backend did not provide a Firebase login token.');
-    await firebaseRealtime.connectFirebaseRealtime(
-      customToken,
-      (kind) => {
-        window.clearTimeout(refreshTimer.current);
-        refreshTimer.current = window.setTimeout(() => {
-          frameRef.current?.contentWindow?.postMessage(
-            { type: 'lkarne:firestore-update', kind },
-            window.location.origin
-          );
-        }, 180);
-      },
-      (error) => {
-        console.error('Firestore listener error:', error);
-        setSyncStatus('error');
-        frameRef.current?.contentWindow?.postMessage(
-          { type: 'lkarne:realtime-status', connected: false },
-          window.location.origin
-        );
-      }
-    );
-    setSyncStatus('connected');
-    frameRef.current?.contentWindow?.postMessage(
-      { type: 'lkarne:realtime-status', connected: true },
-      window.location.origin
-    );
-  }
 
   async function installApp() {
     if (installPrompt) {
@@ -122,11 +118,11 @@ export default function App() {
         ref={frameRef}
       />
 
-      {firebaseRealtimeConfigured && syncStatus !== 'idle' && (
+      {firebaseConfigured && syncStatus !== 'idle' && (
         <div className={`sync-status ${syncStatus}`} role="status">
           <span aria-hidden="true" className="sync-dot" />
           {syncStatus === 'connected' ? 'Synchronisé en direct' :
-            syncStatus === 'connecting' ? 'Connexion sécurisée…' : 'Synchronisation indisponible'}
+            syncStatus === 'connecting' ? 'Connexion sécurisée…' : 'Connexion Firebase indisponible'}
         </div>
       )}
 
@@ -165,7 +161,7 @@ export default function App() {
               <p>Ouvrez le menu du navigateur et choisissez « Installer l’application ».</p>
             )}
             <p className="install-note">
-              L’installation ajoute un raccourci; connectez-vous avec votre identifiant et votre PIN habituels.
+              L’installation ajoute un raccourci; connectez-vous avec votre identifiant et votre nouveau mot de passe.
             </p>
           </section>
         </div>
