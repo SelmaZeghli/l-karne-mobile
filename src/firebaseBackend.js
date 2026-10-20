@@ -6,7 +6,8 @@ import {
   onAuthStateChanged,
   setPersistence,
   signInWithEmailAndPassword,
-  signOut
+  signOut,
+  connectAuthEmulator
 } from 'firebase/auth';
 import {
   collection,
@@ -18,7 +19,8 @@ import {
   query,
   runTransaction,
   where,
-  writeBatch
+  writeBatch,
+  connectFirestoreEmulator
 } from 'firebase/firestore';
 
 const config = {
@@ -36,6 +38,7 @@ const minimumPasswordLength = 12;
 
 let auth;
 let database;
+let emulatorsConnected = false;
 let persistenceReady;
 let schemaCache = {};
 let unsubscribeAuth;
@@ -46,11 +49,28 @@ function getFirebaseServices() {
   if (!firebaseConfigured) {
     throw new Error('La configuration Firebase publique est incomplète.');
   }
+
   const app = getApps().find((candidate) => candidate.name === 'lkarne') ||
     initializeApp(config, 'lkarne');
+
   auth = auth || getAuth(app);
-  persistenceReady = persistenceReady || setPersistence(auth, browserLocalPersistence);
   database = database || getFirestore(app);
+
+  if (
+    import.meta.env.DEV &&
+    import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' &&
+    !emulatorsConnected
+  ) {
+    connectAuthEmulator(auth, 'http://127.0.0.1:9099', {
+      disableWarnings: true
+    });
+    connectFirestoreEmulator(database, '127.0.0.1', 8080);
+    emulatorsConnected = true;
+  }
+
+  persistenceReady = persistenceReady ||
+    setPersistence(auth, browserLocalPersistence);
+
   return { auth, database };
 }
 

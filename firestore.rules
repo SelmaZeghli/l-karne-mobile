@@ -30,7 +30,7 @@ service cloud.firestore {
     }
 
     function linkedUserId() {
-      return hasLink() ? get(linkPath(request.auth.uid)).data.user_id : '';
+      return signedIn() ? get(linkPath(request.auth.uid)).data.user_id : '';
     }
 
     function ownsProfile(userId) {
@@ -52,7 +52,7 @@ service cloud.firestore {
     }
 
     function roundedMoney(value) {
-      return math.round(value * 100) / 100;
+      return math.round(value * 100) / 100.0;
     }
 
     function saleUnits(productId, productName) {
@@ -200,24 +200,43 @@ service cloud.firestore {
     match /Products/{productId} {
       allow read: if hasLink();
       allow create, delete: if isAdmin();
-      allow update: if isAdmin() || userCanUpdatePurchaseStock(productId);
+      allow update: if (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'stock_qty', '_last_user_purchase_id'
+        ]) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasAll([
+          'stock_qty', '_last_user_purchase_id'
+        ]) &&
+        userCanUpdatePurchaseStock(productId)
+      ) || isAdmin();
     }
 
     match /PublicUsers/{userId} {
       allow get: if isAdmin() || ownsProfile(userId);
       allow list: if isAdmin();
       allow create, delete: if isAdmin();
-      allow update: if isAdmin() ||
-        userCanClaimUsername(userId) ||
-        userCanUpdatePurchaseBalance(userId);
+      allow update: if (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'balance_mad', '_last_user_purchase_id'
+        ]) &&
+        userCanUpdatePurchaseBalance(userId)
+      ) || (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['username']) &&
+        userCanClaimUsername(userId)
+      ) || isAdmin();
     }
 
     match /Transactions/{transactionId} {
       allow get: if transactionId == '_schema' ? hasLink() :
-        (isAdmin() || (hasLink() && resource.data.user_id == linkedUserId()));
+        (isAdmin() || (hasLink() && (
+          (!exists(transactionPath(transactionId)) &&
+            transactionId.matches('^TX-REQ-' + linkedUserId() + '-[A-Za-z0-9_-]{8,80}$')) ||
+          resource.data.user_id == linkedUserId()
+        )));
       allow list: if isAdmin() ||
         (hasLink() && resource.data.user_id == linkedUserId());
-      allow create: if isAdmin() || userCanCreatePurchase(transactionId);
+      allow create: if (request.resource.data.type == 'purchase' &&
+        userCanCreatePurchase(transactionId)) || isAdmin();
       allow update: if isAdmin() || userCanRequestCancellation();
       allow delete: if isAdmin();
     }
