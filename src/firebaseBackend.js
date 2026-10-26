@@ -942,7 +942,7 @@ async function settle(body) {
 }
 
 async function restock(body, inventoryPurchase = false) {
-  await requireAdmin();
+  const context = await requireAdmin();
   const productId = String(body.productId || '').trim();
   const quantity = Number(inventoryPurchase ? body.quantity : body.addedQty);
   const cost = inventoryPurchase ? roundMoney(body.cost) : 0;
