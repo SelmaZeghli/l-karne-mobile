@@ -651,24 +651,25 @@ async function addUser(body) {
   };
 }
 
-async function purchase(body) {
-  const context = await currentContext();
+async function purchase(body, byAdmin = false) {
+  const context = byAdmin ? await requireAdmin() : await currentContext();
+  const userId = byAdmin ? String(body.userId || '').trim() : context.profile.id;
   const productId = String(body.productId || '').trim();
   const quantity = Number(body.quantity);
   const paid = body.paid === true || String(body.paid).toLowerCase() === 'true';
   const requestId = String(body.requestId || '').trim();
-  if (!productId || !Number.isSafeInteger(quantity) || quantity <= 0) {
-    throw new Error('Produit ou quantité invalide.');
+  if (!userId || !productId || !Number.isSafeInteger(quantity) || quantity <= 0) {
+    throw new Error('Utilisateur, produit ou quantité invalide.');
   }
   if (requestId && !/^[A-Za-z0-9_-]{8,80}$/.test(requestId)) {
     throw new Error('Identifiant de demande invalide.');
   }
   const txId = requestId
-    ? `TX-REQ-${context.profile.id}-${requestId}`
+    ? `TX-REQ-${userId}-${requestId}`
     : makeTransactionId('TX');
   const { database: db } = getFirebaseServices();
   const productReference = doc(db, 'Products', productId);
-  const profileReference = doc(db, 'PublicUsers', context.profile.id);
+  const profileReference = doc(db, 'PublicUsers', userId);
   const transactionReference = doc(db, 'Transactions', txId);
   const headers = await schemaFor('Transactions');
   let result;
@@ -680,7 +681,7 @@ async function purchase(body) {
     ]);
     if (existingTransaction.exists()) {
       const old = existingTransaction.data();
-      if (old.user_id !== context.profile.id || old.type !== 'purchase' ||
+      if (old.user_id !== userId || old.type !== 'purchase' ||
           old.item_id !== productId || Number(old.quantity) !== quantity ||
           parseBoolean(old.paid) !== paid) {
         throw new Error('Cette demande a déjà été utilisée pour une autre opération; demandez une vérification avant de réessayer.');
@@ -692,7 +693,7 @@ async function purchase(body) {
         quantity,
         amount: roundMoney(old.amount_mad),
         paid,
-        newBalance: roundMoney(profileSnapshot.data()?.balance_mad || context.profile.balance_mad),
+        newBalance: roundMoney(profileSnapshot.data()?.balance_mad || 0),
         newStock: parseInt(productSnapshot.data()?.stock_qty, 10) || 0
       };
       return;
@@ -710,7 +711,7 @@ async function purchase(body) {
       const available = Math.floor(currentStock / requiredUnits);
       throw new Error(`Stock insuffisant ! Il ne reste que ${available}${requiredUnits === 3 ? ' lot(s) de 3 pièces.' : ' pièce(s).'}`);
     }
-    const unitPrice = userPrice(context.profile, product.name, product.price_mad);
+    const unitPrice = userPrice(profile, product.name, product.price_mad);
     const amount = roundMoney(unitPrice * quantity);
     const currentBalance = Number(profile.balance_mad || 0);
     const newBalance = paid ? currentBalance : roundMoney(currentBalance + amount);
@@ -719,14 +720,15 @@ async function purchase(body) {
     const transactionRecord = {
       id: txId,
       timestamp: now,
-      user_id: context.profile.id,
-      user_name: String(context.profile.name || ''),
+      user_id: userId,
+      user_name: String(profile.name || ''),
       type: 'purchase',
       item_id: productId,
       item_name: displayProductName(product.name),
       quantity,
       amount_mad: amount,
       notes: (paid ? 'Achat payé sur place' : 'Achat libre-service') +
+        (byAdmin ? ' (enregistré par l’admin)' : '') +
         (requiredUnits > 1 ? ` (${removeUnits} unités de stock retirées)` : ''),
       paid,
       status: 'COMPLETE',
@@ -945,12 +947,13 @@ async function restock(body, inventoryPurchase = false) {
   const context = await requireAdmin();
   const productId = String(body.productId || '').trim();
   const quantity = Number(inventoryPurchase ? body.quantity : body.addedQty);
-  const cost = inventoryPurchase ? roundMoney(body.cost) : 0;
+  const rawCost = body.cost === undefined || body.cost === '' ? 0 : Number(body.cost);
+  const cost = inventoryPurchase ? roundMoney(rawCost) : 0;
   const notes = String(body.notes || '').trim().slice(0, 200);
   if (!productId || !Number.isSafeInteger(quantity) ||
-      (inventoryPurchase ? quantity <= 0 || !Number.isFinite(cost) || cost <= 0 : quantity === 0)) {
+      (inventoryPurchase ? quantity <= 0 || !Number.isFinite(rawCost) || rawCost < 0 : quantity === 0)) {
     throw new Error(inventoryPurchase
-      ? 'Produit valide, quantité entière positive et coût total supérieur à zéro requis.'
+      ? 'Produit valide, quantité entière positive et coût total positif ou nul requis.'
       : 'Quantité de correction invalide.');
   }
   const { database: db } = getFirebaseServices();
@@ -1148,6 +1151,8 @@ async function dispatchAction(action, payload = {}) {
       return exportInvites();
     case 'admin/issue_recovery_code':
       return issueRecoveryCode(payload.userId);
+    case 'admin/purchase_for_user':
+      return purchase(payload, true);
     case 'admin/settle':
       return settle(payload);
     case 'admin/decide_purchase_cancellation':

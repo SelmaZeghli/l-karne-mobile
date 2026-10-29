@@ -5,3 +5,10 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Local secrets, exports and logs
+l-karne-key.json
+codes-configuration-comptes.csv
+karne.txt
+L-Karne - info.txt
+*-debug.log

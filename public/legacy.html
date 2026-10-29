@@ -678,8 +678,8 @@
             <input id="inventory-purchase-quantity" type="number" min="1" step="1" required inputmode="numeric" value="1" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl font-bold focus:ring-2 focus:ring-amber-500">
           </div>
           <div>
-            <label for="inventory-purchase-cost" class="block text-xs font-semibold text-slate-700 mb-1">Coût total payé (DH)</label>
-            <input id="inventory-purchase-cost" type="number" min="0.01" step="0.01" required inputmode="decimal" placeholder="Ex. 120.00" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl font-bold focus:ring-2 focus:ring-amber-500">
+            <label for="inventory-purchase-cost" class="block text-xs font-semibold text-slate-700 mb-1">Coût total payé (DH) <span class="font-normal text-slate-400">— facultatif</span></label>
+            <input id="inventory-purchase-cost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Ex. 120.00" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl font-bold focus:ring-2 focus:ring-amber-500">
           </div>
         </div>
         <div>
@@ -825,6 +825,55 @@
     </div>
   </div>
 
+  <!-- Register Purchase For User Modal (Admin) -->
+  <div id="admin-user-purchase-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl border border-slate-100 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-bold text-slate-900 text-base">Enregistrer un khdaha</h3>
+        <button onclick="closeModal('admin-user-purchase-modal')" class="p-1 text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="bg-amber-50 p-3 rounded-2xl border border-amber-100 text-xs text-amber-800">
+        Pour : <strong id="admin-user-purchase-name">User</strong>
+      </div>
+
+      <form onsubmit="submitAdminUserPurchase(event)" class="space-y-3 text-xs">
+        <div>
+          <label for="admin-user-purchase-product" class="block font-semibold text-slate-700 mb-1">Produit</label>
+          <select id="admin-user-purchase-product" required onchange="updateAdminUserPurchaseTotal()" class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-sm focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div>
+          <label for="admin-user-purchase-quantity" class="block font-semibold text-slate-700 mb-1">Quantité</label>
+          <input id="admin-user-purchase-quantity" type="number" min="1" step="1" required inputmode="numeric" value="1" oninput="updateAdminUserPurchaseTotal()" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl font-bold text-sm focus:ring-2 focus:ring-amber-500">
+        </div>
+        <div>
+          <span class="block font-semibold text-slate-700 mb-1">Paiement</span>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="flex items-center gap-2 px-3 py-2.5 border border-slate-200 rounded-xl cursor-pointer has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-50">
+              <input type="radio" name="admin-user-purchase-paid" value="true" class="accent-emerald-600">
+              <span class="font-semibold">Payé</span>
+            </label>
+            <label class="flex items-center gap-2 px-3 py-2.5 border border-slate-200 rounded-xl cursor-pointer has-[:checked]:border-rose-500 has-[:checked]:bg-rose-50">
+              <input type="radio" name="admin-user-purchase-paid" value="false" checked class="accent-rose-600">
+              <span class="font-semibold">Pas encore payé</span>
+            </label>
+          </div>
+          <p class="text-[11px] text-slate-400 mt-1">« Pas encore payé » ajoute le montant à la dette de l’utilisateur.</p>
+        </div>
+        <div class="flex items-center justify-between rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+          <span class="font-semibold text-slate-500">Total estimé</span>
+          <span id="admin-user-purchase-total" class="font-black text-slate-800 text-sm">0.00 DH</span>
+        </div>
+        <div class="flex gap-2.5 pt-1">
+          <button type="button" onclick="closeModal('admin-user-purchase-modal')" class="flex-1 py-2.5 border border-slate-200 text-slate-600 font-semibold rounded-xl text-xs">Annuler</button>
+          <button type="submit" class="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs shadow-sm tap-effect">Enregistrer khdaha</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Add Product Modal (Admin) -->
   <div id="add-product-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl border border-slate-100 space-y-4">
@@ -959,6 +1008,7 @@
     let editingProductId = null;
     let removingStockProductId = null;
     let settleTargetUser = null;
+    let adminPurchaseUserId = null;
     let sessionUserValidated = false;
     let adminRefreshTimer = null;
     let adminRefreshInProgress = false;
@@ -1751,8 +1801,14 @@
               ${balanceLabel}
               </span>
             </td>
-            <td class="py-3 text-right">
-              <button 
+            <td class="py-3 text-right whitespace-nowrap">
+              <button
+                onclick="openAdminUserPurchase('${escapeHtml(u.id)}')"
+                class="px-2.5 py-1 text-xs font-bold rounded-lg transition bg-amber-600 hover:bg-amber-700 text-white shadow-xs tap-effect mr-1"
+              >
+                Khdaha
+              </button>
+              <button
                 onclick="promptSettle('${escapeHtml(u.id)}')"
                 class="px-2.5 py-1 text-xs font-bold rounded-lg transition bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs tap-effect"
               >
@@ -2017,6 +2073,71 @@
     }
 
     // ==================== ADMIN ACTIONS ====================
+    function openAdminUserPurchase(userId) {
+      const user = adminData?.users.find(candidate => candidate.id === userId);
+      if (!user) {
+        showToast('Utilisateur introuvable.', 'error');
+        return;
+      }
+      const products = (adminData.products || [])
+        .filter(product => product.is_active)
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      if (!products.length) {
+        showToast('Aucun produit actif disponible.', 'error');
+        return;
+      }
+      adminPurchaseUserId = userId;
+      document.getElementById('admin-user-purchase-name').textContent = user.name;
+      document.getElementById('admin-user-purchase-product').innerHTML = products.map(product =>
+        `<option value="${escapeHtml(product.id)}">${escapeHtml(product.name)} · ${Number(product.price_mad || 0).toFixed(2)} DH (stock : ${Number(product.stock_qty || 0)})</option>`
+      ).join('');
+      document.getElementById('admin-user-purchase-quantity').value = '1';
+      document.querySelector('input[name="admin-user-purchase-paid"][value="false"]').checked = true;
+      updateAdminUserPurchaseTotal();
+      openModal('admin-user-purchase-modal');
+    }
+
+    function updateAdminUserPurchaseTotal() {
+      const productId = document.getElementById('admin-user-purchase-product').value;
+      const product = adminData?.products.find(item => item.id === productId);
+      const quantity = Number(document.getElementById('admin-user-purchase-quantity').value);
+      const total = product && Number.isSafeInteger(quantity) && quantity > 0
+        ? Number(product.price_mad || 0) * quantity
+        : 0;
+      document.getElementById('admin-user-purchase-total').textContent = `${total.toFixed(2)} DH`;
+    }
+
+    async function submitAdminUserPurchase(event) {
+      event.preventDefault();
+      if (!adminPurchaseUserId) return;
+      const quantityInput = document.getElementById('admin-user-purchase-quantity');
+      const quantity = Number(quantityInput.value);
+      if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+        showToast('La quantité doit être un entier supérieur à zéro.', 'error');
+        quantityInput.focus();
+        return;
+      }
+      const paid = document.querySelector('input[name="admin-user-purchase-paid"]:checked')?.value === 'true';
+
+      const res = await apiCall('admin/purchase_for_user', {
+        userId: adminPurchaseUserId,
+        productId: document.getElementById('admin-user-purchase-product').value,
+        quantity: quantity,
+        paid: paid
+      });
+      if (!res.success) {
+        showToast(res.error || 'Impossible d’enregistrer ce khdaha.', 'error');
+        return;
+      }
+      closeModal('admin-user-purchase-modal');
+      adminPurchaseUserId = null;
+      playSound('success');
+      const tx = res.transaction || {};
+      showToast(`Khdaha enregistré : ${tx.itemName || 'produit'} × ${quantity} — ${Number(tx.amount || 0).toFixed(2)} DH ${paid ? '(payé)' : '(ajouté à la dette)'}.`);
+      await loadAdminData();
+      await loadDashboardData();
+    }
+
     function promptSettle(userId) {
       const user = adminData?.users.find(candidate => candidate.id === userId);
       if (!user) {
@@ -2142,14 +2263,14 @@
       const quantityInput = document.getElementById('inventory-purchase-quantity');
       const costInput = document.getElementById('inventory-purchase-cost');
       const quantity = Number(quantityInput.value);
-      const cost = Number(costInput.value);
+      const cost = costInput.value.trim() === '' ? 0 : Number(costInput.value);
       if (!Number.isSafeInteger(quantity) || quantity <= 0) {
         showToast('La quantité achetée doit être un entier supérieur à zéro.', 'error');
         quantityInput.focus();
         return;
       }
-      if (!Number.isFinite(cost) || cost <= 0) {
-        showToast('Saisissez le coût total payé, supérieur à zéro.', 'error');
+      if (!Number.isFinite(cost) || cost < 0) {
+        showToast('Le coût total payé doit être positif ou laissé vide.', 'error');
         costInput.focus();
         return;
       }
@@ -2167,7 +2288,9 @@
       closeModal('inventory-purchase-modal');
       inventoryPurchaseProductId = null;
       playSound('success');
-      showToast(`Achat enregistré : ${cost.toFixed(2)} DH déduits de la caisse.`);
+      showToast(cost > 0
+        ? `Achat enregistré : ${cost.toFixed(2)} DH déduits de la caisse.`
+        : 'Achat enregistré : stock ajouté sans coût.');
       await loadAdminData();
       await loadDashboardData();
     }
