@@ -1003,7 +1003,82 @@ async function restock(body, inventoryPurchase = false) {
     cost
   };
 }
+async function cancelRestock(body) {
+  const context = await requireAdmin();
+  const transactionId = String(body.transactionId || '').trim();
+  if (!transactionId) throw new Error('Transaction invalide.');
+  const { database: db } = getFirebaseServices();
+  const txReference = doc(db, 'Transactions', transactionId);
+  const eventId = `TX-RSTCANCEL-${transactionId}`;
+  const eventReference = doc(db, 'Transactions', eventId);
+  const headers = await schemaFor('Transactions');
+  const productHeaders = await schemaFor('Products');
 
+  const first = await getDoc(txReference);
+  if (!first.exists()) throw new Error('Transaction introuvable.');
+  const productId = String(first.data().item_id || '');
+  if (!productId) throw new Error('Produit manquant sur cette transaction.');
+  const productReference = doc(db, 'Products', productId);
+
+  let newStock = 0;
+  await runTransaction(db, async (transaction) => {
+    const [txSnapshot, eventSnapshot, productSnapshot] = await Promise.all([
+      transaction.get(txReference),
+      transaction.get(eventReference),
+      transaction.get(productReference)
+    ]);
+    if (eventSnapshot.exists()) return; // déjà annulé, ne rien refaire
+    if (!txSnapshot.exists() || !productSnapshot.exists()) {
+      throw new Error('Transaction ou produit introuvable.');
+    }
+    const record = txSnapshot.data();
+    const type = String(record.type || '');
+    if (!['restock', 'inventory_purchase'].includes(type) || !isCompleted(record)) {
+      throw new Error('Seul un réapprovisionnement terminé peut être annulé.');
+    }
+    const quantity = Number(record.quantity);
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+      throw new Error('Seul un réapprovisionnement positif peut être annulé.');
+    }
+    const product = productSnapshot.data();
+    const currentStock = parseInt(product.stock_qty, 10) || 0;
+    newStock = currentStock - quantity;
+    if (newStock < 0) {
+      throw new Error(`Stock actuel (${currentStock}) inférieur à la quantité à retirer (${quantity}).`);
+    }
+    const now = new Date().toISOString();
+
+    transaction.set(productReference, documentWithRow({
+      ...product, stock_qty: newStock
+    }, productHeaders, product._position), { merge: true });
+
+    transaction.set(txReference, documentWithRow({
+      ...record,
+      status: 'CANCELLED',
+      cancel_status: 'APPROVED',
+      cancel_decided_at: now,
+      cancel_decided_by: context.profile.id
+    }, headers, record._position), { merge: true });
+
+    transaction.set(eventReference, documentWithRow({
+      id: eventId,
+      timestamp: now,
+      user_id: context.profile.id,
+      user_name: 'Admin',
+      type: 'restock_cancellation',
+      item_id: productId,
+      item_name: String(record.item_name || ''),
+      quantity: -quantity,
+      amount_mad: 0,
+      notes: `Annulation du doublon ${transactionId}` +
+        (type === 'inventory_purchase' ? ` (coût ${roundMoney(record.amount_mad)} DH restitué à la caisse)` : '') +
+        ` — nouveau stock: ${newStock}`,
+      paid: false,
+      status: 'COMPLETE'
+    }, headers, Date.now()));
+  });
+  return { success: true, message: 'Réapprovisionnement annulé; stock et caisse corrigés.', productId, newStock };
+}
 async function setOpeningCash(body) {
   await requireAdmin();
   if (body.amount === undefined || String(body.amount).trim() === '') {
@@ -1171,6 +1246,8 @@ async function dispatchAction(action, payload = {}) {
       return updateProduct(payload, false);
     case 'admin/add_user':
       return addUser(payload);
+    case 'admin/cancel_restock':
+      return cancelRestock(payload);
     default:
       throw new Error(`Opération Firebase inconnue : ${action}`);
   }
