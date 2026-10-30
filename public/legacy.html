@@ -2035,15 +2035,18 @@
           : `${tx.type === 'inventory_purchase' || tx.type === 'purchase_cancellation' ? '−' : ''}${Number(tx.amount_mad || 0).toFixed(2)} DH`;
         const amountClass = tx.type === 'inventory_purchase' || tx.type === 'purchase_cancellation' ? 'text-rose-600' : 'text-slate-800';
         const cancelStatus = String(tx.cancel_status || '').toUpperCase();
-        const isCancellableRestock = (tx.type === 'restock' || tx.type === 'inventory_purchase') &&
-          Number(tx.quantity) > 0 && cancelStatus !== 'APPROVED';
-        const action = isCancellableRestock
-          ? `<button type="button" onclick="cancelRestock('${escapeHtml(tx.id)}')" class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-white text-rose-700 font-bold shadow-sm hover:border-rose-300 hover:bg-rose-50 hover:shadow transition"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i><span>Annuler</span></button>`
-          : tx.type !== 'purchase' || cancelStatus === 'APPROVED'
+        // Purchase cancellation (original behaviour, unchanged)
+        const purchaseAction = tx.type !== 'purchase' || cancelStatus === 'APPROVED'
           ? (cancelStatus === 'APPROVED' ? '<span class="text-slate-500">Annulé</span>' : '—')
           : (cancelStatus === 'REQUESTED'
             ? `<div class="flex flex-wrap justify-end gap-2"><button type="button" onclick="decidePurchaseCancellation('${escapeHtml(tx.id)}', true)" class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold shadow-sm hover:bg-emerald-700 hover:shadow transition"><i data-lucide="check" class="w-3.5 h-3.5"></i><span>Approuver</span></button><button type="button" onclick="decidePurchaseCancellation('${escapeHtml(tx.id)}', false)" class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 font-bold shadow-sm hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 hover:shadow transition"><i data-lucide="x" class="w-3.5 h-3.5"></i><span>Refuser</span></button></div>`
             : `<button type="button" onclick="decidePurchaseCancellation('${escapeHtml(tx.id)}', true)" class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-white text-rose-700 font-bold shadow-sm hover:border-rose-300 hover:bg-rose-50 hover:shadow transition"><i data-lucide="ban" class="w-3.5 h-3.5"></i><span>Annuler</span></button>`);
+        // Restock cancellation (separate feature, only for stock rows)
+        const isStockRow = tx.type === 'restock' || tx.type === 'inventory_purchase';
+        const restockAction = Number(tx.quantity) > 0
+          ? `<button type="button" onclick="cancelRestock('${escapeHtml(tx.id)}')" class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-white text-rose-700 font-bold shadow-sm hover:border-rose-300 hover:bg-rose-50 hover:shadow transition"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i><span>Annuler stock</span></button>`
+          : '—';
+        const action = isStockRow ? restockAction : purchaseAction;
         return `
           <tr class="hover:bg-slate-50 transition">
             <td class="py-3 text-slate-500">${escapeHtml(formatDateTime(tx.timestamp))}</td>
