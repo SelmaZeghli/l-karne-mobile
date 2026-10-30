@@ -116,8 +116,8 @@ service cloud.firestore {
       let fields = request.resource.data.diff(resource.data).affectedKeys();
       return ownsProfile(resource.data.user_id) &&
         resource.data.type == 'purchase' &&
-        resource.data.status == 'COMPLETE' &&
-        resource.data.cancel_status != 'APPROVED' &&
+        resource.data.get('status', '') in ['', null, 'COMPLETE'] &&
+        resource.data.get('cancel_status', '') != 'APPROVED' &&
         request.resource.data.cancel_status == 'REQUESTED' &&
         fields.hasOnly([
           'cancel_status', 'cancel_requested_at', 'cancel_decided_at', 'cancel_decided_by'
