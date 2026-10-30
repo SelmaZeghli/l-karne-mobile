@@ -835,9 +835,12 @@ async function decidePurchaseCancellation(body) {
     if (!currentPurchase.exists()) throw new Error('Transaction introuvable.');
     if (existingEvent.exists() && isCompleted(existingEvent.data())) return;
     const purchase = currentPurchase.data();
-    if (purchase.type !== 'purchase' || !isCompleted(purchase) ||
-        String(purchase.cancel_status || '').toUpperCase() !== 'REQUESTED') {
-      throw new Error('Aucune demande d’annulation en attente pour cet achat.');
+    // The admin may approve a colleague's request or cancel a purchase directly.
+    if (purchase.type !== 'purchase' || !isCompleted(purchase)) {
+      throw new Error('Seul un achat terminé peut être annulé.');
+    }
+    if (String(purchase.cancel_status || '').toUpperCase() === 'APPROVED') {
+      throw new Error('Cet achat a déjà été annulé.');
     }
     if (!productSnapshot.exists() || !profileSnapshot.exists()) {
       throw new Error('Produit ou profil introuvable; une vérification est nécessaire.');
